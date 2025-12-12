@@ -27,6 +27,7 @@ const SUPPORTED_EXCHANGE_TEMPLATES = [
   { exchange_type: 'binance', name: 'Binance Futures', type: 'cex' as const },
   { exchange_type: 'bybit', name: 'Bybit Futures', type: 'cex' as const },
   { exchange_type: 'okx', name: 'OKX Futures', type: 'cex' as const },
+  { exchange_type: 'bitget', name: 'Bitget Futures', type: 'cex' as const },
   { exchange_type: 'hyperliquid', name: 'Hyperliquid', type: 'dex' as const },
   { exchange_type: 'aster', name: 'Aster DEX', type: 'dex' as const },
   { exchange_type: 'lighter', name: 'Lighter', type: 'dex' as const },
@@ -144,6 +145,10 @@ export function ExchangeConfigModal({
     },
     okx: { url: 'https://www.okx.com/join/1865360', hasReferral: true },
     bybit: { url: 'https://partner.bybit.com/b/83856', hasReferral: true },
+    bitget: {
+      url: 'https://www.bitget.com/referral/register?from=referral&clacCode=c8a43172',
+      hasReferral: true,
+    },
     hyperliquid: {
       url: 'https://app.hyperliquid.xyz/join/AITRADING',
       hasReferral: true,
@@ -325,6 +330,17 @@ export function ExchangeConfigModal({
           testnet
         )
       } else if (currentExchangeType === 'okx') {
+        if (!apiKey.trim() || !secretKey.trim() || !passphrase.trim()) return
+        await onSave(
+          exchangeId,
+          exchangeType,
+          trimmedAccountName,
+          apiKey.trim(),
+          secretKey.trim(),
+          passphrase.trim(),
+          testnet
+        )
+      } else if (currentExchangeType === 'bitget') {
         if (!apiKey.trim() || !secretKey.trim() || !passphrase.trim()) return
         await onSave(
           exchangeId,
@@ -638,10 +654,11 @@ export function ExchangeConfigModal({
 
             {selectedTemplate && (
               <>
-                {/* Binance/Bybit/OKX 的输入字段 */}
+                {/* Binance/Bybit/OKX/Bitget 的输入字段 */}
                 {(currentExchangeType === 'binance' ||
                   currentExchangeType === 'bybit' ||
-                  currentExchangeType === 'okx') && (
+                  currentExchangeType === 'okx' ||
+                  currentExchangeType === 'bitget') && (
                   <>
                     {/* 币安用户配置提示 (D1 方案) */}
                     {currentExchangeType === 'binance' && (
@@ -784,7 +801,8 @@ export function ExchangeConfigModal({
                       />
                     </div>
 
-                    {currentExchangeType === 'okx' && (
+                    {(currentExchangeType === 'okx' ||
+                      currentExchangeType === 'bitget') && (
                       <div>
                         <label
                           className="block text-sm font-semibold mb-2"
@@ -1400,6 +1418,7 @@ export function ExchangeConfigModal({
                   currentExchangeType !== 'binance' &&
                   currentExchangeType !== 'bybit' &&
                   currentExchangeType !== 'okx' &&
+                  currentExchangeType !== 'bitget' &&
                   currentExchangeType !== 'paper' &&
                   (!apiKey.trim() || !secretKey.trim()))
               }
