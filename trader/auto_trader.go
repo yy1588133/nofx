@@ -257,6 +257,12 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 				return nil, fmt.Errorf("failed to initialize LIGHTER trader (V1): %w", err)
 			}
 		}
+	case "paper":
+		logger.Infof("📝 [%s] Using Paper Trading (simulated)", config.Name)
+		trader, err = NewPaperTrader(userID, config.ExchangeID, config.InitialBalance, st)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Paper trader: %w", err)
+		}
 	default:
 		return nil, fmt.Errorf("unsupported trading platform: %s", config.Exchange)
 	}

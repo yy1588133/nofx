@@ -69,14 +69,8 @@ const BybitIcon: React.FC<IconProps> = ({
       d="M149.5 53.3H124.5L100 77.8V122.2L124.5 146.7H149.5V53.3Z"
       fill="#F7A600"
     />
-    <path
-      d="M75.5 53.3H124.5V77.8H75.5V53.3Z"
-      fill="#F7A600"
-    />
-    <path
-      d="M75.5 122.2H124.5V146.7H75.5V122.2Z"
-      fill="#F7A600"
-    />
+    <path d="M75.5 53.3H124.5V77.8H75.5V53.3Z" fill="#F7A600" />
+    <path d="M75.5 122.2H124.5V146.7H75.5V122.2Z" fill="#F7A600" />
   </svg>
 )
 
@@ -94,11 +88,11 @@ const OKXIcon: React.FC<IconProps> = ({
     xmlns="http://www.w3.org/2000/svg"
     className={className}
   >
-    <rect width="200" height="200" rx="24" fill="#000"/>
-    <rect x="40" y="40" width="50" height="50" rx="8" fill="#fff"/>
-    <rect x="110" y="40" width="50" height="50" rx="8" fill="#fff"/>
-    <rect x="40" y="110" width="50" height="50" rx="8" fill="#fff"/>
-    <rect x="110" y="110" width="50" height="50" rx="8" fill="#fff"/>
+    <rect width="200" height="200" rx="24" fill="#000" />
+    <rect x="40" y="40" width="50" height="50" rx="8" fill="#fff" />
+    <rect x="110" y="40" width="50" height="50" rx="8" fill="#fff" />
+    <rect x="40" y="110" width="50" height="50" rx="8" fill="#fff" />
+    <rect x="110" y="110" width="50" height="50" rx="8" fill="#fff" />
   </svg>
 )
 
@@ -180,6 +174,30 @@ const AsterIcon: React.FC<IconProps> = ({
   </svg>
 )
 
+// Paper Trading SVG 图标组件
+const PaperIcon: React.FC<IconProps> = ({
+  width = 24,
+  height = 24,
+  className,
+}) => (
+  <svg
+    width={width}
+    height={height}
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+  >
+    <path
+      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+      stroke="#0ECB81"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+)
+
 // 获取交易所图标的函数
 export const getExchangeIcon = (
   exchangeType: string,
@@ -189,14 +207,16 @@ export const getExchangeIcon = (
   const type = exchangeType.toLowerCase().includes('binance')
     ? 'binance'
     : exchangeType.toLowerCase().includes('bybit')
-      ? 'bybit'
-      : exchangeType.toLowerCase().includes('okx')
-        ? 'okx'
-        : exchangeType.toLowerCase().includes('hyperliquid')
-          ? 'hyperliquid'
-          : exchangeType.toLowerCase().includes('aster')
-            ? 'aster'
-            : exchangeType.toLowerCase()
+    ? 'bybit'
+    : exchangeType.toLowerCase().includes('okx')
+    ? 'okx'
+    : exchangeType.toLowerCase().includes('hyperliquid')
+    ? 'hyperliquid'
+    : exchangeType.toLowerCase().includes('aster')
+    ? 'aster'
+    : exchangeType.toLowerCase().includes('paper')
+    ? 'paper'
+    : exchangeType.toLowerCase()
 
   const iconProps = {
     width: props.width || 24,
@@ -216,6 +236,8 @@ export const getExchangeIcon = (
       return <HyperliquidIcon {...iconProps} />
     case 'aster':
       return <AsterIcon {...iconProps} />
+    case 'paper':
+      return <PaperIcon {...iconProps} />
     case 'cex':
     default:
       return (

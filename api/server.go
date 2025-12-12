@@ -153,6 +153,7 @@ func (s *Server) setupRoutes() {
 			protected.POST("/exchanges", s.handleCreateExchange)
 			protected.PUT("/exchanges", s.handleUpdateExchangeConfigs)
 			protected.DELETE("/exchanges/:id", s.handleDeleteExchange)
+			protected.POST("/paper-account/reset", s.handleResetPaperAccount)
 
 			// Strategy management
 			protected.GET("/strategies", s.handleGetStrategies)
@@ -596,6 +597,9 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 					exchangeCfg.Testnet,
 				)
 			}
+		case "paper":
+			// Paper Trading uses user-provided initial balance, no need to query exchange
+			logger.Infof("📝 Paper Trading mode - using user-provided initial balance: %.2f USDT", req.InitialBalance)
 		default:
 			logger.Infof("⚠️ Unsupported exchange type: %s, using user input for initial balance", exchangeCfg.ExchangeType)
 		}
@@ -1511,22 +1515,29 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Exchange configuration updated"})
 }
 
+// ResetPaperAccountRequest 重置 Paper 账户请求
+type ResetPaperAccountRequest struct {
+	ExchangeID string  `json:"exchange_id" binding:"required"`
+	NewBalance float64 `json:"new_balance" binding:"required,gt=0"`
+}
+
 // CreateExchangeRequest request structure for creating a new exchange account
 type CreateExchangeRequest struct {
-	ExchangeType            string `json:"exchange_type" binding:"required"` // "binance", "bybit", "okx", "hyperliquid", "aster", "lighter"
-	AccountName             string `json:"account_name"`                     // User-defined account name
-	Enabled                 bool   `json:"enabled"`
-	APIKey                  string `json:"api_key"`
-	SecretKey               string `json:"secret_key"`
-	Passphrase              string `json:"passphrase"`
-	Testnet                 bool   `json:"testnet"`
-	HyperliquidWalletAddr   string `json:"hyperliquid_wallet_addr"`
-	AsterUser               string `json:"aster_user"`
-	AsterSigner             string `json:"aster_signer"`
-	AsterPrivateKey         string `json:"aster_private_key"`
-	LighterWalletAddr       string `json:"lighter_wallet_addr"`
-	LighterPrivateKey       string `json:"lighter_private_key"`
-	LighterAPIKeyPrivateKey string `json:"lighter_api_key_private_key"`
+	ExchangeType            string  `json:"exchange_type" binding:"required"` // "binance", "bybit", "okx", "hyperliquid", "aster", "lighter", "paper"
+	AccountName             string  `json:"account_name"`                     // User-defined account name
+	Enabled                 bool    `json:"enabled"`
+	APIKey                  string  `json:"api_key"`
+	SecretKey               string  `json:"secret_key"`
+	Passphrase              string  `json:"passphrase"`
+	Testnet                 bool    `json:"testnet"`
+	HyperliquidWalletAddr   string  `json:"hyperliquid_wallet_addr"`
+	AsterUser               string  `json:"aster_user"`
+	AsterSigner             string  `json:"aster_signer"`
+	AsterPrivateKey         string  `json:"aster_private_key"`
+	LighterWalletAddr       string  `json:"lighter_wallet_addr"`
+	LighterPrivateKey       string  `json:"lighter_private_key"`
+	LighterAPIKeyPrivateKey string  `json:"lighter_api_key_private_key"`
+	InitialBalance          float64 `json:"initial_balance"` // Paper Trading: 初始资金，默认10000
 }
 
 // handleCreateExchange Create a new exchange account
@@ -1584,6 +1595,7 @@ func (s *Server) handleCreateExchange(c *gin.Context) {
 	validTypes := map[string]bool{
 		"binance": true, "bybit": true, "okx": true,
 		"hyperliquid": true, "aster": true, "lighter": true,
+		"paper": true,
 	}
 	if !validTypes[req.ExchangeType] {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid exchange type: %s", req.ExchangeType)})
@@ -1596,6 +1608,7 @@ func (s *Server) handleCreateExchange(c *gin.Context) {
 		req.APIKey, req.SecretKey, req.Passphrase, req.Testnet,
 		req.HyperliquidWalletAddr, req.AsterUser, req.AsterSigner, req.AsterPrivateKey,
 		req.LighterWalletAddr, req.LighterPrivateKey, req.LighterAPIKeyPrivateKey,
+		req.InitialBalance,
 	)
 	if err != nil {
 		logger.Infof("❌ Failed to create exchange account: %v", err)
@@ -1638,6 +1651,15 @@ func (s *Server) handleDeleteExchange(c *gin.Context) {
 		}
 	}
 
+	// Clean up paper trading data if this is a paper exchange
+	exchange, _ := s.store.Exchange().GetByID(userID, exchangeID)
+	if exchange != nil && exchange.ExchangeType == "paper" {
+		if err := s.store.PaperAccount().DeleteByExchangeID(exchangeID); err != nil {
+			logger.Warnf("⚠️ Failed to clean up paper account data: %v", err)
+			// Continue with deletion even if cleanup fails
+		}
+	}
+
 	// Delete exchange account
 	err = s.store.Exchange().Delete(userID, exchangeID)
 	if err != nil {
@@ -1648,6 +1670,45 @@ func (s *Server) handleDeleteExchange(c *gin.Context) {
 
 	logger.Infof("✓ Deleted exchange account: id=%s", exchangeID)
 	c.JSON(http.StatusOK, gin.H{"message": "Exchange account deleted"})
+}
+
+// handleResetPaperAccount 重置 Paper Trading 账户
+func (s *Server) handleResetPaperAccount(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	var req ResetPaperAccountRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: exchange_id and new_balance are required"})
+		return
+	}
+
+	// 验证这是一个 paper exchange
+	exchange, err := s.store.Exchange().GetByID(userID, req.ExchangeID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get exchange"})
+		return
+	}
+	if exchange == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Exchange not found"})
+		return
+	}
+	if exchange.ExchangeType != "paper" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Only paper trading accounts can be reset"})
+		return
+	}
+
+	// 调用 Reset 方法
+	if err := s.store.PaperAccount().Reset(userID, req.ExchangeID, req.NewBalance); err != nil {
+		logger.Errorf("❌ Failed to reset paper account: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to reset paper account: %v", err)})
+		return
+	}
+
+	logger.Infof("✅ Paper account reset: exchangeID=%s, newBalance=%.2f", req.ExchangeID, req.NewBalance)
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "Paper account reset successfully",
+		"new_balance": req.NewBalance,
+	})
 }
 
 // handleTraderList Trader list
@@ -2354,6 +2415,7 @@ func (s *Server) handleGetSupportedExchanges(c *gin.Context) {
 		{ExchangeType: "hyperliquid", Name: "Hyperliquid", Type: "dex"},
 		{ExchangeType: "aster", Name: "Aster DEX", Type: "dex"},
 		{ExchangeType: "lighter", Name: "LIGHTER DEX", Type: "dex"},
+		{ExchangeType: "paper", Name: "Paper Trading", Type: "paper"},
 	}
 
 	c.JSON(http.StatusOK, supportedExchanges)
@@ -2379,6 +2441,7 @@ func (s *Server) Start() error {
 	logger.Infof("  • PUT  /api/models           - Update AI model config")
 	logger.Infof("  • GET  /api/exchanges        - Get exchange config")
 	logger.Infof("  • PUT  /api/exchanges        - Update exchange config")
+	logger.Infof("  • POST /api/paper-account/reset - Reset paper trading account balance")
 	logger.Infof("  • GET  /api/status?trader_id=xxx     - Specified trader's system status")
 	logger.Infof("  • GET  /api/account?trader_id=xxx    - Specified trader's account info")
 	logger.Infof("  • GET  /api/positions?trader_id=xxx  - Specified trader's position list")

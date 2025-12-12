@@ -16,15 +16,16 @@ type Store struct {
 	db *sql.DB
 
 	// Sub-stores (lazy initialization)
-	user     *UserStore
-	aiModel  *AIModelStore
-	exchange *ExchangeStore
-	trader   *TraderStore
-	decision *DecisionStore
-	backtest *BacktestStore
-	position *PositionStore
-	strategy *StrategyStore
-	equity   *EquityStore
+	user         *UserStore
+	aiModel      *AIModelStore
+	exchange     *ExchangeStore
+	trader       *TraderStore
+	decision     *DecisionStore
+	backtest     *BacktestStore
+	position     *PositionStore
+	strategy     *StrategyStore
+	equity       *EquityStore
+	paperAccount *PaperAccountStore
 
 	// Encryption functions
 	encryptFunc func(string) string
@@ -142,6 +143,9 @@ func (s *Store) initTables() error {
 	}
 	if err := s.Equity().initTables(); err != nil {
 		return fmt.Errorf("failed to initialize equity tables: %w", err)
+	}
+	if err := s.PaperAccount().InitTables(); err != nil {
+		return fmt.Errorf("failed to initialize paper account tables: %w", err)
 	}
 	return nil
 }
@@ -265,6 +269,16 @@ func (s *Store) Equity() *EquityStore {
 		s.equity = &EquityStore{db: s.db}
 	}
 	return s.equity
+}
+
+// PaperAccount gets paper account storage
+func (s *Store) PaperAccount() *PaperAccountStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.paperAccount == nil {
+		s.paperAccount = NewPaperAccountStore(s.db)
+	}
+	return s.paperAccount
 }
 
 // Close closes database connection

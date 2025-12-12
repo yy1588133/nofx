@@ -517,6 +517,14 @@ func (m *PositionSyncManager) createTrader(config *store.TraderFullConfig) (Trad
 		}
 		return NewLighterTrader(exchange.LighterPrivateKey, exchange.LighterWalletAddr, exchange.Testnet)
 
+	case "paper":
+		return NewPaperTrader(
+			config.Trader.UserID,
+			exchange.ID,
+			config.Trader.InitialBalance,
+			m.store,
+		)
+
 	default:
 		return nil, fmt.Errorf("unsupported exchange type: %s", exchange.ExchangeType)
 	}

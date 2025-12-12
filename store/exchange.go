@@ -17,14 +17,13 @@ type ExchangeStore struct {
 	decryptFunc func(string) string
 }
 
-// Exchange exchange configuration
 type Exchange struct {
 	ID                      string    `json:"id"`            // UUID
-	ExchangeType            string    `json:"exchange_type"` // "binance", "bybit", "okx", "hyperliquid", "aster", "lighter"
+	ExchangeType            string    `json:"exchange_type"` // "binance", "bybit", "okx", "hyperliquid", "aster", "lighter", "paper"
 	AccountName             string    `json:"account_name"`  // User-defined account name
 	UserID                  string    `json:"user_id"`
 	Name                    string    `json:"name"` // Display name (auto-generated or user-defined)
-	Type                    string    `json:"type"` // "cex" or "dex"
+	Type                    string    `json:"type"` // "cex" or "dex" or "paper"
 	Enabled                 bool      `json:"enabled"`
 	APIKey                  string    `json:"apiKey"`
 	SecretKey               string    `json:"secretKey"`
@@ -37,6 +36,7 @@ type Exchange struct {
 	LighterWalletAddr       string    `json:"lighterWalletAddr"`
 	LighterPrivateKey       string    `json:"lighterPrivateKey"`
 	LighterAPIKeyPrivateKey string    `json:"lighterAPIKeyPrivateKey"`
+	InitialBalance          float64   `json:"initialBalance"` // Paper Trading: 初始资金，默认10000
 	CreatedAt               time.Time `json:"created_at"`
 	UpdatedAt               time.Time `json:"updated_at"`
 }
@@ -63,6 +63,7 @@ func (s *ExchangeStore) initTables() error {
 			lighter_wallet_addr TEXT DEFAULT '',
 			lighter_private_key TEXT DEFAULT '',
 			lighter_api_key_private_key TEXT DEFAULT '',
+			initial_balance REAL DEFAULT 10000,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)
@@ -75,6 +76,7 @@ func (s *ExchangeStore) initTables() error {
 	s.db.Exec(`ALTER TABLE exchanges ADD COLUMN passphrase TEXT DEFAULT ''`)
 	s.db.Exec(`ALTER TABLE exchanges ADD COLUMN exchange_type TEXT NOT NULL DEFAULT ''`)
 	s.db.Exec(`ALTER TABLE exchanges ADD COLUMN account_name TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`ALTER TABLE exchanges ADD COLUMN initial_balance REAL DEFAULT 10000`)
 
 	// Run migration to multi-account if needed
 	if err := s.migrateToMultiAccount(); err != nil {
@@ -230,6 +232,7 @@ func (s *ExchangeStore) List(userID string) ([]*Exchange, error) {
 		       COALESCE(lighter_wallet_addr, '') as lighter_wallet_addr,
 		       COALESCE(lighter_private_key, '') as lighter_private_key,
 		       COALESCE(lighter_api_key_private_key, '') as lighter_api_key_private_key,
+		       COALESCE(initial_balance, 10000) as initial_balance,
 		       created_at, updated_at
 		FROM exchanges WHERE user_id = ? ORDER BY exchange_type, account_name
 	`, userID)
@@ -248,6 +251,7 @@ func (s *ExchangeStore) List(userID string) ([]*Exchange, error) {
 			&e.Enabled, &e.APIKey, &e.SecretKey, &e.Passphrase, &e.Testnet,
 			&e.HyperliquidWalletAddr, &e.AsterUser, &e.AsterSigner, &e.AsterPrivateKey,
 			&e.LighterWalletAddr, &e.LighterPrivateKey, &e.LighterAPIKeyPrivateKey,
+			&e.InitialBalance,
 			&createdAt, &updatedAt,
 		)
 		if err != nil {
@@ -281,6 +285,7 @@ func (s *ExchangeStore) GetByID(userID, id string) (*Exchange, error) {
 		       COALESCE(lighter_wallet_addr, '') as lighter_wallet_addr,
 		       COALESCE(lighter_private_key, '') as lighter_private_key,
 		       COALESCE(lighter_api_key_private_key, '') as lighter_api_key_private_key,
+		       COALESCE(initial_balance, 10000) as initial_balance,
 		       created_at, updated_at
 		FROM exchanges WHERE id = ? AND user_id = ?
 	`, id, userID).Scan(
@@ -289,6 +294,7 @@ func (s *ExchangeStore) GetByID(userID, id string) (*Exchange, error) {
 		&e.Enabled, &e.APIKey, &e.SecretKey, &e.Passphrase, &e.Testnet,
 		&e.HyperliquidWalletAddr, &e.AsterUser, &e.AsterSigner, &e.AsterPrivateKey,
 		&e.LighterWalletAddr, &e.LighterPrivateKey, &e.LighterAPIKeyPrivateKey,
+		&e.InitialBalance,
 		&createdAt, &updatedAt,
 	)
 	if err != nil {
@@ -320,6 +326,8 @@ func getExchangeNameAndType(exchangeType string) (name string, typ string) {
 		return "Aster DEX", "dex"
 	case "lighter":
 		return "LIGHTER DEX", "dex"
+	case "paper":
+		return "Paper Trading", "paper"
 	default:
 		return exchangeType + " Exchange", "cex"
 	}
@@ -329,7 +337,8 @@ func getExchangeNameAndType(exchangeType string) (name string, typ string) {
 func (s *ExchangeStore) Create(userID, exchangeType, accountName string, enabled bool,
 	apiKey, secretKey, passphrase string, testnet bool,
 	hyperliquidWalletAddr, asterUser, asterSigner, asterPrivateKey,
-	lighterWalletAddr, lighterPrivateKey, lighterApiKeyPrivateKey string) (string, error) {
+	lighterWalletAddr, lighterPrivateKey, lighterApiKeyPrivateKey string,
+	initialBalance float64) (string, error) {
 
 	id := uuid.New().String()
 	name, typ := getExchangeNameAndType(exchangeType)
@@ -339,20 +348,26 @@ func (s *ExchangeStore) Create(userID, exchangeType, accountName string, enabled
 		accountName = "Default"
 	}
 
-	logger.Debugf("🔧 ExchangeStore.Create: userID=%s, exchangeType=%s, accountName=%s, id=%s",
-		userID, exchangeType, accountName, id)
+	// Paper Trading: default initial balance is 10000
+	if initialBalance <= 0 {
+		initialBalance = 10000
+	}
+
+	logger.Debugf("🔧 ExchangeStore.Create: userID=%s, exchangeType=%s, accountName=%s, id=%s, initialBalance=%.2f",
+		userID, exchangeType, accountName, id, initialBalance)
 
 	_, err := s.db.Exec(`
 		INSERT INTO exchanges (id, exchange_type, account_name, user_id, name, type, enabled,
 		                       api_key, secret_key, passphrase, testnet,
 		                       hyperliquid_wallet_addr, aster_user, aster_signer, aster_private_key,
 		                       lighter_wallet_addr, lighter_private_key, lighter_api_key_private_key,
-		                       created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+		                       initial_balance, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
 	`, id, exchangeType, accountName, userID, name, typ, enabled,
 		s.encrypt(apiKey), s.encrypt(secretKey), s.encrypt(passphrase), testnet,
 		hyperliquidWalletAddr, asterUser, asterSigner, s.encrypt(asterPrivateKey),
-		lighterWalletAddr, s.encrypt(lighterPrivateKey), s.encrypt(lighterApiKeyPrivateKey))
+		lighterWalletAddr, s.encrypt(lighterPrivateKey), s.encrypt(lighterApiKeyPrivateKey),
+		initialBalance)
 
 	if err != nil {
 		return "", err
@@ -454,7 +469,7 @@ func (s *ExchangeStore) CreateLegacy(userID, id, name, typ string, enabled bool,
 	if id == "binance" || id == "bybit" || id == "okx" || id == "hyperliquid" || id == "aster" || id == "lighter" {
 		// Use new Create method with exchange type
 		_, err := s.Create(userID, id, "Default", enabled, apiKey, secretKey, "", testnet,
-			hyperliquidWalletAddr, asterUser, asterSigner, asterPrivateKey, "", "", "")
+			hyperliquidWalletAddr, asterUser, asterSigner, asterPrivateKey, "", "", "", 10000)
 		return err
 	}
 

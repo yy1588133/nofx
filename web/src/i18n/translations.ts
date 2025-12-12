@@ -96,7 +96,8 @@ export const translations = {
     // Backtest Page
     backtestPage: {
       title: 'Backtest Lab',
-      subtitle: 'Pick a model + time range to replay the full AI decision loop.',
+      subtitle:
+        'Pick a model + time range to replay the full AI decision loop.',
       start: 'Start Backtest',
       starting: 'Starting...',
       quickRanges: {
@@ -134,13 +135,13 @@ export const translations = {
         customTfPlaceholder: 'Custom TFs (comma separated, e.g. 2h,6h)',
         initialBalanceLabel: 'Initial balance (USDT)',
         feeLabel: 'Fee (bps)',
-      slippageLabel: 'Slippage (bps)',
-      btcEthLeverageLabel: 'BTC/ETH leverage (x)',
-      altcoinLeverageLabel: 'Altcoin leverage (x)',
-      fillPolicies: {
-        nextOpen: 'Next open',
-        barVwap: 'Bar VWAP',
-        midPrice: 'Mid price',
+        slippageLabel: 'Slippage (bps)',
+        btcEthLeverageLabel: 'BTC/ETH leverage (x)',
+        altcoinLeverageLabel: 'Altcoin leverage (x)',
+        fillPolicies: {
+          nextOpen: 'Next open',
+          barVwap: 'Bar VWAP',
+          midPrice: 'Mid price',
         },
         promptPresets: {
           baseline: 'Baseline',
@@ -215,7 +216,8 @@ export const translations = {
         title: 'AI Decision Trail',
         subtitle: 'Showing last {count} cycles',
         empty: 'No records yet',
-        emptyHint: 'The AI thought & execution log will appear once the run starts.',
+        emptyHint:
+          'The AI thought & execution log will appear once the run starts.',
       },
       charts: {
         equityTitle: 'Equity Curve',
@@ -378,14 +380,30 @@ export const translations = {
     lighterApiKeyPrivateKey: 'API Key Private Key',
     enterLighterWalletAddress: 'Enter Ethereum wallet address (0x...)',
     enterLighterPrivateKey: 'Enter L1 private key (32 bytes)',
-    enterLighterApiKeyPrivateKey: 'Enter API Key private key (40 bytes, optional)',
-    lighterWalletAddressDesc: 'Your Ethereum wallet address for account identification',
-    lighterPrivateKeyDesc: 'L1 private key for account identification (32-byte ECDSA key)',
-    lighterApiKeyPrivateKeyDesc: 'API Key private key for transaction signing (40-byte Poseidon2 key)',
-    lighterApiKeyOptionalNote: 'Without API Key, system will use limited V1 mode',
-    lighterV1Description: 'Basic Mode - Limited functionality, testing framework only',
-    lighterV2Description: 'Full Mode - Supports Poseidon2 signing and real trading',
+    enterLighterApiKeyPrivateKey:
+      'Enter API Key private key (40 bytes, optional)',
+    lighterWalletAddressDesc:
+      'Your Ethereum wallet address for account identification',
+    lighterPrivateKeyDesc:
+      'L1 private key for account identification (32-byte ECDSA key)',
+    lighterApiKeyPrivateKeyDesc:
+      'API Key private key for transaction signing (40-byte Poseidon2 key)',
+    lighterApiKeyOptionalNote:
+      'Without API Key, system will use limited V1 mode',
+    lighterV1Description:
+      'Basic Mode - Limited functionality, testing framework only',
+    lighterV2Description:
+      'Full Mode - Supports Poseidon2 signing and real trading',
     lighterPrivateKeyImported: 'LIGHTER private key imported',
+
+    // Paper Trading
+    paperTrading: 'Paper Trading',
+    paperTradingDesc:
+      'Practice trading with virtual funds using real market data. No real money involved.',
+    initialCapital: 'Initial Capital',
+    slippageRate: 'Slippage Rate',
+    feeRate: 'Fee Rate',
+    resetPaperAccount: 'Reset Paper Account',
 
     // Exchange names
     hyperliquidExchangeName: 'Hyperliquid',
@@ -520,12 +538,13 @@ export const translations = {
     leaveBlankForDefault: 'Leave blank to use default API address',
     modelConfigInfo1:
       '• For official API, only API Key is required, leave other fields blank',
-    modelConfigInfo2: '• Custom Base URL and Model Name only needed for third-party proxies',
-    modelConfigInfo3:
-      '• API Key is encrypted and stored securely',
+    modelConfigInfo2:
+      '• Custom Base URL and Model Name only needed for third-party proxies',
+    modelConfigInfo3: '• API Key is encrypted and stored securely',
     defaultModel: 'Default model',
     applyApiKey: 'Apply API Key',
-    kimiApiNote: 'Kimi requires API Key from international site (moonshot.ai), China region keys are not compatible',
+    kimiApiNote:
+      'Kimi requires API Key from international site (moonshot.ai), China region keys are not compatible',
     leaveBlankForDefaultModel: 'Leave blank to use default model',
     customModelName: 'Model Name (Optional)',
     customModelNamePlaceholder: 'e.g.: deepseek-chat, qwen3-max, gpt-4o',
@@ -1220,13 +1239,13 @@ export const translations = {
         customTfPlaceholder: '自定义周期（逗号分隔，例如 2h,6h）',
         initialBalanceLabel: '初始资金 (USDT)',
         feeLabel: '手续费 (bps)',
-      slippageLabel: '滑点 (bps)',
-      btcEthLeverageLabel: 'BTC/ETH 杠杆 (倍)',
-      altcoinLeverageLabel: '山寨币杠杆 (倍)',
-      fillPolicies: {
-        nextOpen: '下一根开盘价',
-        barVwap: 'K线 VWAP',
-        midPrice: '中间价',
+        slippageLabel: '滑点 (bps)',
+        btcEthLeverageLabel: 'BTC/ETH 杠杆 (倍)',
+        altcoinLeverageLabel: '山寨币杠杆 (倍)',
+        fillPolicies: {
+          nextOpen: '下一根开盘价',
+          barVwap: 'K线 VWAP',
+          midPrice: '中间价',
         },
         promptPresets: {
           baseline: '基础版',
@@ -1462,11 +1481,21 @@ export const translations = {
     enterLighterApiKeyPrivateKey: '請輸入 API Key 私鑰（40 字節，可選）',
     lighterWalletAddressDesc: '您的以太坊錢包地址，用於識別賬戶',
     lighterPrivateKeyDesc: 'L1 私鑰用於賬戶識別（32 字節 ECDSA 私鑰）',
-    lighterApiKeyPrivateKeyDesc: 'API Key 私鑰用於簽名交易（40 字節 Poseidon2 私鑰）',
-    lighterApiKeyOptionalNote: '如果不提供 API Key，系統將使用功能受限的 V1 模式',
+    lighterApiKeyPrivateKeyDesc:
+      'API Key 私鑰用於簽名交易（40 字節 Poseidon2 私鑰）',
+    lighterApiKeyOptionalNote:
+      '如果不提供 API Key，系統將使用功能受限的 V1 模式',
     lighterV1Description: '基本模式 - 功能受限，僅用於測試框架',
     lighterV2Description: '完整模式 - 支持 Poseidon2 簽名和真實交易',
     lighterPrivateKeyImported: 'LIGHTER 私鑰已導入',
+
+    // Paper Trading
+    paperTrading: '模拟交易',
+    paperTradingDesc: '使用真实市场数据进行虚拟资金交易练习，不涉及真实资金。',
+    initialCapital: '初始资金',
+    slippageRate: '滑点率',
+    feeRate: '手续费率',
+    resetPaperAccount: '重置模拟账户',
 
     // Exchange names
     hyperliquidExchangeName: 'Hyperliquid',
@@ -1584,11 +1613,13 @@ export const translations = {
     customBaseURLPlaceholder: '自定义API基础URL，如: https://api.openai.com/v1',
     leaveBlankForDefault: '留空则使用默认API地址',
     modelConfigInfo1: '• 使用官方 API 时，只需填写 API Key，其他字段留空即可',
-    modelConfigInfo2: '• 自定义 Base URL 和 Model Name 仅在使用第三方代理时需要填写',
+    modelConfigInfo2:
+      '• 自定义 Base URL 和 Model Name 仅在使用第三方代理时需要填写',
     modelConfigInfo3: '• API Key 加密存储，不会明文展示',
     defaultModel: '默认模型',
     applyApiKey: '申请 API Key',
-    kimiApiNote: 'Kimi 需要从国际站申请 API Key (moonshot.ai)，中国区 Key 不通用',
+    kimiApiNote:
+      'Kimi 需要从国际站申请 API Key (moonshot.ai)，中国区 Key 不通用',
     leaveBlankForDefaultModel: '留空使用默认模型名称',
     customModelName: 'Model Name (可选)',
     customModelNamePlaceholder: '例如: deepseek-chat, qwen3-max, gpt-4o',
@@ -1715,7 +1746,8 @@ export const translations = {
     signIn: '登录',
     signUp: '注册',
     registrationClosed: '注册已关闭',
-    registrationClosedMessage: '平台当前不开放新用户注册，如需访问请联系管理员获取账号。',
+    registrationClosedMessage:
+      '平台当前不开放新用户注册，如需访问请联系管理员获取账号。',
 
     // Hero Section
     githubStarsInDays: '3 天内 2.5K+ GitHub Stars',

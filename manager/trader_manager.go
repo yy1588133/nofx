@@ -673,6 +673,10 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		traderConfig.LighterPrivateKey = exchangeCfg.LighterPrivateKey
 		traderConfig.LighterWalletAddr = exchangeCfg.LighterWalletAddr
 		traderConfig.LighterTestnet = exchangeCfg.Testnet
+	case "paper":
+		// Paper Trading uses the InitialBalance from traderCfg
+		// No API keys needed
+		logger.Infof("📝 Paper Trading mode - no API keys required")
 	}
 
 	// Set API keys based on AI model
