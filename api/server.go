@@ -834,11 +834,36 @@ func (s *Server) handleDeleteTrader(c *gin.Context) {
 	userID := c.GetString("user_id")
 	traderID := c.Param("id")
 
+	// Get trader config before deletion for paper account cleanup
+	traderCfg, _ := s.store.Trader().GetFullConfig(userID, traderID)
+
 	// Delete from database
 	err := s.store.Trader().Delete(userID, traderID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to delete trader: %v", err)})
 		return
+	}
+
+	// Clean up Paper Account if this is the last trader using the paper exchange
+	if traderCfg != nil && traderCfg.Exchange != nil && traderCfg.Exchange.ExchangeType == "paper" {
+		// Check if any other traders are using this exchange
+		traders, _ := s.store.Trader().List(userID)
+		exchangeInUse := false
+		for _, t := range traders {
+			if t.ExchangeID == traderCfg.Exchange.ID {
+				exchangeInUse = true
+				break
+			}
+		}
+		// If no other trader uses this paper exchange, clean up the paper account
+		if !exchangeInUse {
+			if err := s.store.PaperAccount().DeleteByExchangeID(traderCfg.Exchange.ID); err != nil {
+				logger.Warnf("⚠️ Failed to clean up paper account: %v", err)
+				// Don't interrupt the delete flow, just log warning
+			} else {
+				logger.Infof("🗑️ Cleaned up paper account for exchange: %s", traderCfg.Exchange.ID)
+			}
+		}
 	}
 
 	// If trader is running, stop it first

@@ -948,12 +948,24 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 	posKey := decision.Symbol + "_long"
 	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
 
-	// Set stop loss and take profit
+	// Set stop loss and take profit - CRITICAL: Stop loss failure requires immediate position closure
 	if err := at.trader.SetStopLoss(decision.Symbol, "LONG", quantity, decision.StopLoss); err != nil {
-		logger.Infof("  ⚠ Failed to set stop loss: %v", err)
+		logger.Errorf("❌ Critical: Failed to set stop loss for %s: %v", decision.Symbol, err)
+		logger.Infof("  🚨 Closing position immediately due to stop loss setup failure")
+		
+		// Immediately close position - cannot have open position without stop loss protection
+		if _, closeErr := at.trader.CloseLong(decision.Symbol, 0); closeErr != nil {
+			logger.Errorf("❌ Failed to close position after stop loss failure: %v", closeErr)
+			// Position is now at risk without stop loss
+			return fmt.Errorf("critical: stop loss setup failed and position close also failed: %v (original: %w)", closeErr, err)
+		}
+		return fmt.Errorf("critical: stop loss setup failed, position was closed for safety: %w", err)
 	}
+	
+	// Take profit is less critical - warn but don't close position
 	if err := at.trader.SetTakeProfit(decision.Symbol, "LONG", quantity, decision.TakeProfit); err != nil {
-		logger.Infof("  ⚠ Failed to set take profit: %v", err)
+		logger.Warnf("⚠️ Failed to set take profit for %s (position remains open with stop loss): %v", decision.Symbol, err)
+		// Continue - stop loss is set, take profit is optional
 	}
 
 	return nil
@@ -1065,12 +1077,24 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 	posKey := decision.Symbol + "_short"
 	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
 
-	// Set stop loss and take profit
+	// Set stop loss and take profit - CRITICAL: Stop loss failure requires immediate position closure
 	if err := at.trader.SetStopLoss(decision.Symbol, "SHORT", quantity, decision.StopLoss); err != nil {
-		logger.Infof("  ⚠ Failed to set stop loss: %v", err)
+		logger.Errorf("❌ Critical: Failed to set stop loss for %s: %v", decision.Symbol, err)
+		logger.Infof("  🚨 Closing position immediately due to stop loss setup failure")
+		
+		// Immediately close position - cannot have open position without stop loss protection
+		if _, closeErr := at.trader.CloseShort(decision.Symbol, 0); closeErr != nil {
+			logger.Errorf("❌ Failed to close position after stop loss failure: %v", closeErr)
+			// Position is now at risk without stop loss
+			return fmt.Errorf("critical: stop loss setup failed and position close also failed: %v (original: %w)", closeErr, err)
+		}
+		return fmt.Errorf("critical: stop loss setup failed, position was closed for safety: %w", err)
 	}
+	
+	// Take profit is less critical - warn but don't close position
 	if err := at.trader.SetTakeProfit(decision.Symbol, "SHORT", quantity, decision.TakeProfit); err != nil {
-		logger.Infof("  ⚠ Failed to set take profit: %v", err)
+		logger.Warnf("⚠️ Failed to set take profit for %s (position remains open with stop loss): %v", decision.Symbol, err)
+		// Continue - stop loss is set, take profit is optional
 	}
 
 	return nil

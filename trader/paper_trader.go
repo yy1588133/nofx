@@ -1,6 +1,7 @@
 package trader
 
 import (
+	"database/sql"
 	"fmt"
 	"nofx/logger"
 	"nofx/market"
@@ -238,7 +239,7 @@ func (t *PaperTrader) OpenShort(symbol string, quantity float64, leverage int) (
 }
 
 func (t *PaperTrader) openPosition(symbol, side string, quantity float64, leverage int) (map[string]interface{}, error) {
-	// 1. 获取市场价格
+	// 1. 获取市场价格（不需要在事务中）
 	md, err := market.Get(symbol)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get market price: %w", err)
@@ -252,7 +253,7 @@ func (t *PaperTrader) openPosition(symbol, side string, quantity float64, levera
 	margin := notional / float64(leverage)
 	fee := notional * t.feeRate
 
-	// 4. 检查可用余额
+	// 4. 预先检查账户余额（在事务外）
 	account, err := t.store.PaperAccount().GetByID(t.accountID)
 	if err != nil {
 		return nil, err
@@ -265,58 +266,10 @@ func (t *PaperTrader) openPosition(symbol, side string, quantity float64, levera
 		return nil, fmt.Errorf("insufficient balance: need %.2f, available %.2f", margin+fee, account.CurrentBalance)
 	}
 
-	// 5. 扣除保证金和手续费
-	account.CurrentBalance -= (margin + fee)
-	account.TotalMarginUsed += margin
-	if err := t.store.PaperAccount().Update(account); err != nil {
-		return nil, fmt.Errorf("failed to update account: %w", err)
-	}
-
-	// 6. 创建或更新持仓
+	// 5. 检查现有持仓（在事务外）
 	existingPos, _ := t.store.PaperAccount().GetPosition(t.accountID, symbol, side)
-	if existingPos != nil {
-		// 加仓
-		newQty := existingPos.Quantity + quantity
-		existingPos.EntryPrice = (existingPos.EntryPrice*existingPos.Quantity + execPrice*quantity) / newQty
-		existingPos.Quantity = newQty
-		existingPos.MarginUsed += margin
-		existingPos.Leverage = leverage
-		existingPos.LiquidationPrice = t.calculateLiquidationPrice(existingPos.EntryPrice, leverage, side)
-		if err := t.store.PaperAccount().UpdatePosition(existingPos); err != nil {
-			// 回滚账户余额
-			account.CurrentBalance += (margin + fee)
-			account.TotalMarginUsed -= margin
-			if rollbackErr := t.store.PaperAccount().Update(account); rollbackErr != nil {
-				logger.Errorf("❌ [Paper] Critical: failed to rollback account after position update failure: %v", rollbackErr)
-			}
-			return nil, fmt.Errorf("failed to update position: %w", err)
-		}
-	} else {
-		// 新建持仓
-		pos := &store.PaperPosition{
-			AccountID:        t.accountID,
-			Symbol:           symbol,
-			Side:             side,
-			Quantity:         quantity,
-			EntryPrice:       execPrice,
-			MarkPrice:        execPrice,
-			Leverage:         leverage,
-			MarginUsed:       margin,
-			LiquidationPrice: t.calculateLiquidationPrice(execPrice, leverage, side),
-			OpenTime:         time.Now(),
-		}
-		if err := t.store.PaperAccount().CreatePosition(pos); err != nil {
-			// 回滚账户余额
-			account.CurrentBalance += (margin + fee)
-			account.TotalMarginUsed -= margin
-			if rollbackErr := t.store.PaperAccount().Update(account); rollbackErr != nil {
-				logger.Errorf("❌ [Paper] Critical: failed to rollback account after position create failure: %v", rollbackErr)
-			}
-			return nil, fmt.Errorf("failed to create position: %w", err)
-		}
-	}
 
-	// 7. 创建订单记录
+	// 6. 准备订单对象
 	orderSide := "BUY"
 	if side == "SHORT" {
 		orderSide = "SELL"
@@ -335,8 +288,57 @@ func (t *PaperTrader) openPosition(symbol, side string, quantity float64, levera
 		Status:       "FILLED",
 		FilledAt:     &filledAt,
 	}
-	if err := t.store.PaperAccount().CreateOrder(order); err != nil {
-		return nil, fmt.Errorf("failed to create order: %w", err)
+
+	// 7. 使用事务执行所有数据库更新
+	err = t.store.Transaction(func(tx *sql.Tx) error {
+		// 7.1 更新账户余额
+		account.CurrentBalance -= (margin + fee)
+		account.TotalMarginUsed += margin
+		if err := t.store.PaperAccount().UpdateTx(tx, account); err != nil {
+			return fmt.Errorf("failed to update account: %w", err)
+		}
+
+		// 7.2 创建或更新持仓
+		if existingPos != nil {
+			// 加仓
+			newQty := existingPos.Quantity + quantity
+			existingPos.EntryPrice = (existingPos.EntryPrice*existingPos.Quantity + execPrice*quantity) / newQty
+			existingPos.Quantity = newQty
+			existingPos.MarginUsed += margin
+			existingPos.Leverage = leverage
+			existingPos.LiquidationPrice = t.calculateLiquidationPrice(existingPos.EntryPrice, leverage, side)
+			if err := t.store.PaperAccount().UpdatePositionTx(tx, existingPos); err != nil {
+				return fmt.Errorf("failed to update position: %w", err)
+			}
+		} else {
+			// 新建持仓
+			pos := &store.PaperPosition{
+				AccountID:        t.accountID,
+				Symbol:           symbol,
+				Side:             side,
+				Quantity:         quantity,
+				EntryPrice:       execPrice,
+				MarkPrice:        execPrice,
+				Leverage:         leverage,
+				MarginUsed:       margin,
+				LiquidationPrice: t.calculateLiquidationPrice(execPrice, leverage, side),
+				OpenTime:         time.Now(),
+			}
+			if err := t.store.PaperAccount().CreatePositionTx(tx, pos); err != nil {
+				return fmt.Errorf("failed to create position: %w", err)
+			}
+		}
+
+		// 7.3 创建订单记录
+		if err := t.store.PaperAccount().CreateOrderTx(tx, order); err != nil {
+			return fmt.Errorf("failed to create order: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
 	logger.Infof("📝 [Paper] Opened %s %s: qty=%.4f, price=%.4f, fee=%.4f", side, symbol, quantity, execPrice, fee)
@@ -358,7 +360,7 @@ func (t *PaperTrader) CloseShort(symbol string, quantity float64) (map[string]in
 }
 
 func (t *PaperTrader) closePosition(symbol, side string, quantity float64) (map[string]interface{}, error) {
-	// 获取持仓
+	// 1. 获取持仓（在事务外）
 	pos, err := t.store.PaperAccount().GetPosition(t.accountID, symbol, side)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get position: %w", err)
@@ -371,7 +373,7 @@ func (t *PaperTrader) closePosition(symbol, side string, quantity float64) (map[
 		quantity = pos.Quantity // 平仓全部
 	}
 
-	// 获取市场价格
+	// 2. 获取市场价格（在事务外）
 	md, err := market.Get(symbol)
 	if err != nil {
 		return nil, err
@@ -381,7 +383,7 @@ func (t *PaperTrader) closePosition(symbol, side string, quantity float64) (map[
 	notional := execPrice * quantity
 	fee := notional * t.feeRate
 
-	// 计算已实现盈亏
+	// 3. 计算已实现盈亏
 	var realizedPnL float64
 	if side == "LONG" {
 		realizedPnL = (execPrice - pos.EntryPrice) * quantity
@@ -390,10 +392,10 @@ func (t *PaperTrader) closePosition(symbol, side string, quantity float64) (map[
 	}
 	realizedPnL -= fee
 
-	// 释放保证金
+	// 4. 释放保证金
 	marginReleased := pos.MarginUsed * (quantity / pos.Quantity)
 
-	// 更新账户
+	// 5. 获取账户（在事务外）
 	account, err := t.store.PaperAccount().GetByID(t.accountID)
 	if err != nil {
 		return nil, err
@@ -402,46 +404,7 @@ func (t *PaperTrader) closePosition(symbol, side string, quantity float64) (map[
 		return nil, fmt.Errorf("paper account not found: %s", t.accountID)
 	}
 
-	// 保存原始值以便回滚
-	originalBalance := account.CurrentBalance
-	originalMarginUsed := account.TotalMarginUsed
-	originalPnL := account.TotalPnL
-
-	account.CurrentBalance += marginReleased + realizedPnL
-	account.TotalMarginUsed -= marginReleased
-	account.TotalPnL += realizedPnL
-	if err := t.store.PaperAccount().Update(account); err != nil {
-		return nil, fmt.Errorf("failed to update account: %w", err)
-	}
-
-	// 更新或删除持仓
-	if quantity >= pos.Quantity {
-		if err := t.store.PaperAccount().DeletePosition(pos.ID); err != nil {
-			// 回滚账户状态
-			account.CurrentBalance = originalBalance
-			account.TotalMarginUsed = originalMarginUsed
-			account.TotalPnL = originalPnL
-			if rollbackErr := t.store.PaperAccount().Update(account); rollbackErr != nil {
-				logger.Errorf("❌ [Paper] Critical: failed to rollback account after position delete failure: %v", rollbackErr)
-			}
-			return nil, fmt.Errorf("failed to delete position: %w", err)
-		}
-	} else {
-		pos.Quantity -= quantity
-		pos.MarginUsed -= marginReleased
-		if err := t.store.PaperAccount().UpdatePosition(pos); err != nil {
-			// 回滚账户状态
-			account.CurrentBalance = originalBalance
-			account.TotalMarginUsed = originalMarginUsed
-			account.TotalPnL = originalPnL
-			if rollbackErr := t.store.PaperAccount().Update(account); rollbackErr != nil {
-				logger.Errorf("❌ [Paper] Critical: failed to rollback account after position update failure: %v", rollbackErr)
-			}
-			return nil, fmt.Errorf("failed to update position: %w", err)
-		}
-	}
-
-	// 创建订单记录
+	// 6. 准备订单对象
 	orderSide := "SELL"
 	if side == "SHORT" {
 		orderSide = "BUY"
@@ -461,8 +424,43 @@ func (t *PaperTrader) closePosition(symbol, side string, quantity float64) (map[
 		RealizedPnL:  realizedPnL,
 		FilledAt:     &filledAt,
 	}
-	if err := t.store.PaperAccount().CreateOrder(order); err != nil {
-		return nil, fmt.Errorf("failed to create order: %w", err)
+
+	// 7. 判断是全部平仓还是部分平仓
+	isFullClose := quantity >= pos.Quantity
+
+	// 8. 使用事务执行所有数据库更新
+	err = t.store.Transaction(func(tx *sql.Tx) error {
+		// 8.1 更新账户余额
+		account.CurrentBalance += marginReleased + realizedPnL
+		account.TotalMarginUsed -= marginReleased
+		account.TotalPnL += realizedPnL
+		if err := t.store.PaperAccount().UpdateTx(tx, account); err != nil {
+			return fmt.Errorf("failed to update account: %w", err)
+		}
+
+		// 8.2 更新或删除持仓
+		if isFullClose {
+			if err := t.store.PaperAccount().DeletePositionTx(tx, pos.ID); err != nil {
+				return fmt.Errorf("failed to delete position: %w", err)
+			}
+		} else {
+			pos.Quantity -= quantity
+			pos.MarginUsed -= marginReleased
+			if err := t.store.PaperAccount().UpdatePositionTx(tx, pos); err != nil {
+				return fmt.Errorf("failed to update position: %w", err)
+			}
+		}
+
+		// 8.3 创建订单记录
+		if err := t.store.PaperAccount().CreateOrderTx(tx, order); err != nil {
+			return fmt.Errorf("failed to create order: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
 	logger.Infof("📝 [Paper] Closed %s %s: qty=%.4f, price=%.4f, pnl=%.4f", side, symbol, quantity, execPrice, realizedPnL)
@@ -677,7 +675,7 @@ func (t *PaperTrader) executeAutoClose(pos *store.PaperPosition, execPrice float
 	notional := execPrice * quantity
 	fee := notional * t.feeRate
 
-	// 计算已实现盈亏
+	// 1. 计算已实现盈亏
 	var realizedPnL float64
 	if pos.Side == "LONG" {
 		realizedPnL = (execPrice - pos.EntryPrice) * quantity
@@ -686,31 +684,17 @@ func (t *PaperTrader) executeAutoClose(pos *store.PaperPosition, execPrice float
 	}
 	realizedPnL -= fee
 
-	// 释放保证金
+	// 2. 释放保证金
 	marginReleased := pos.MarginUsed
 
-	// 更新账户
+	// 3. 获取账户（在事务外）
 	account, err := t.store.PaperAccount().GetByID(t.accountID)
 	if err != nil || account == nil {
 		logger.Errorf("❌ [Paper] Failed to get account for auto-close: %v", err)
 		return fmt.Errorf("failed to get account for auto-close: %w", err)
 	}
 
-	account.CurrentBalance += marginReleased + realizedPnL
-	account.TotalMarginUsed -= marginReleased
-	account.TotalPnL += realizedPnL
-	if err := t.store.PaperAccount().Update(account); err != nil {
-		logger.Errorf("❌ [Paper] Failed to update account for auto-close: %v", err)
-		return fmt.Errorf("failed to update account for auto-close: %w", err)
-	}
-
-	// 删除仓位
-	if err := t.store.PaperAccount().DeletePosition(pos.ID); err != nil {
-		logger.Errorf("❌ [Paper] Failed to delete position for auto-close: %v", err)
-		return fmt.Errorf("failed to delete position for auto-close: %w", err)
-	}
-
-	// 创建订单记录
+	// 4. 准备订单对象
 	orderSide := "SELL"
 	if pos.Side == "SHORT" {
 		orderSide = "BUY"
@@ -730,9 +714,33 @@ func (t *PaperTrader) executeAutoClose(pos *store.PaperPosition, execPrice float
 		RealizedPnL:  realizedPnL,
 		FilledAt:     &filledAt,
 	}
-	if err := t.store.PaperAccount().CreateOrder(order); err != nil {
-		logger.Errorf("❌ [Paper] Failed to create order for auto-close: %v", err)
-		return fmt.Errorf("failed to create order for auto-close: %w", err)
+
+	// 5. 使用事务执行所有数据库更新
+	err = t.store.Transaction(func(tx *sql.Tx) error {
+		// 5.1 更新账户余额
+		account.CurrentBalance += marginReleased + realizedPnL
+		account.TotalMarginUsed -= marginReleased
+		account.TotalPnL += realizedPnL
+		if err := t.store.PaperAccount().UpdateTx(tx, account); err != nil {
+			return fmt.Errorf("failed to update account for auto-close: %w", err)
+		}
+
+		// 5.2 删除仓位
+		if err := t.store.PaperAccount().DeletePositionTx(tx, pos.ID); err != nil {
+			return fmt.Errorf("failed to delete position for auto-close: %w", err)
+		}
+
+		// 5.3 创建订单记录
+		if err := t.store.PaperAccount().CreateOrderTx(tx, order); err != nil {
+			return fmt.Errorf("failed to create order for auto-close: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		logger.Errorf("❌ [Paper] Auto-close transaction failed: %v", err)
+		return err
 	}
 
 	logger.Infof("📝 [Paper] Auto-closed %s %s (%s): qty=%.4f, price=%.4f, pnl=%.4f",

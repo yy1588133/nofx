@@ -295,6 +295,37 @@ func (s *PaperAccountStore) Update(account *PaperAccount) error {
 	return nil
 }
 
+// UpdateTx updates paper account within a transaction
+func (s *PaperAccountStore) UpdateTx(tx *sql.Tx, account *PaperAccount) error {
+	now := time.Now()
+	account.UpdatedAt = now
+
+	result, err := tx.Exec(`
+		UPDATE paper_accounts SET
+			current_balance = ?,
+			total_margin_used = ?,
+			total_pnl = ?,
+			slippage_rate = ?,
+			fee_rate = ?,
+			updated_at = ?
+		WHERE id = ?
+	`,
+		account.CurrentBalance, account.TotalMarginUsed,
+		account.TotalPnL, account.SlippageRate, account.FeeRate,
+		now.Format("2006-01-02 15:04:05"), account.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update paper account: %w", err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return fmt.Errorf("paper account not found: id=%s", account.ID)
+	}
+
+	return nil
+}
+
 // Reset resets paper account to initial state with new balance
 func (s *PaperAccountStore) Reset(userID, exchangeID string, newBalance float64) error {
 	now := time.Now()
@@ -367,6 +398,33 @@ func (s *PaperAccountStore) CreatePosition(pos *PaperPosition) error {
 	pos.UpdatedAt = now
 
 	result, err := s.db.Exec(`
+		INSERT INTO paper_positions (
+			account_id, symbol, side, quantity, entry_price, mark_price,
+			leverage, margin_used, unrealized_pnl, liquidation_price,
+			stop_loss, take_profit, open_time, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		pos.AccountID, pos.Symbol, pos.Side, pos.Quantity, pos.EntryPrice, pos.MarkPrice,
+		pos.Leverage, pos.MarginUsed, pos.UnrealizedPnL, pos.LiquidationPrice,
+		pos.StopLoss, pos.TakeProfit,
+		now.Format("2006-01-02 15:04:05"), now.Format("2006-01-02 15:04:05"),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create paper position: %w", err)
+	}
+
+	id, _ := result.LastInsertId()
+	pos.ID = id
+	return nil
+}
+
+// CreatePositionTx creates a new paper position within a transaction
+func (s *PaperAccountStore) CreatePositionTx(tx *sql.Tx, pos *PaperPosition) error {
+	now := time.Now()
+	pos.OpenTime = now
+	pos.UpdatedAt = now
+
+	result, err := tx.Exec(`
 		INSERT INTO paper_positions (
 			account_id, symbol, side, quantity, entry_price, mark_price,
 			leverage, margin_used, unrealized_pnl, liquidation_price,
@@ -491,9 +549,60 @@ func (s *PaperAccountStore) UpdatePosition(pos *PaperPosition) error {
 	return nil
 }
 
+// UpdatePositionTx updates a paper position within a transaction
+func (s *PaperAccountStore) UpdatePositionTx(tx *sql.Tx, pos *PaperPosition) error {
+	now := time.Now()
+	pos.UpdatedAt = now
+
+	result, err := tx.Exec(`
+		UPDATE paper_positions SET
+			quantity = ?,
+			entry_price = ?,
+			mark_price = ?,
+			leverage = ?,
+			margin_used = ?,
+			unrealized_pnl = ?,
+			liquidation_price = ?,
+			stop_loss = ?,
+			take_profit = ?,
+			updated_at = ?
+		WHERE id = ?
+	`,
+		pos.Quantity, pos.EntryPrice, pos.MarkPrice, pos.Leverage,
+		pos.MarginUsed, pos.UnrealizedPnL, pos.LiquidationPrice,
+		pos.StopLoss, pos.TakeProfit,
+		now.Format("2006-01-02 15:04:05"), pos.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update paper position: %w", err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return fmt.Errorf("paper position not found: id=%d", pos.ID)
+	}
+
+	return nil
+}
+
 // DeletePosition deletes a paper position
 func (s *PaperAccountStore) DeletePosition(posID int64) error {
 	result, err := s.db.Exec(`DELETE FROM paper_positions WHERE id = ?`, posID)
+	if err != nil {
+		return fmt.Errorf("failed to delete paper position: %w", err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return fmt.Errorf("paper position not found: id=%d", posID)
+	}
+
+	return nil
+}
+
+// DeletePositionTx deletes a paper position within a transaction
+func (s *PaperAccountStore) DeletePositionTx(tx *sql.Tx, posID int64) error {
+	result, err := tx.Exec(`DELETE FROM paper_positions WHERE id = ?`, posID)
 	if err != nil {
 		return fmt.Errorf("failed to delete paper position: %w", err)
 	}
@@ -516,6 +625,31 @@ func (s *PaperAccountStore) CreateOrder(order *PaperOrder) error {
 	order.CreatedAt = now
 
 	result, err := s.db.Exec(`
+		INSERT INTO paper_orders (
+			account_id, symbol, side, position_side, order_type,
+			quantity, price, avg_price, fee, status, realized_pnl,
+			created_at, filled_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		order.AccountID, order.Symbol, order.Side, order.PositionSide, order.OrderType,
+		order.Quantity, order.Price, order.AvgPrice, order.Fee, order.Status, order.RealizedPnL,
+		now.Format("2006-01-02 15:04:05"), s.formatNullableTime(order.FilledAt),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create paper order: %w", err)
+	}
+
+	id, _ := result.LastInsertId()
+	order.ID = id
+	return nil
+}
+
+// CreateOrderTx creates a new paper order within a transaction
+func (s *PaperAccountStore) CreateOrderTx(tx *sql.Tx, order *PaperOrder) error {
+	now := time.Now()
+	order.CreatedAt = now
+
+	result, err := tx.Exec(`
 		INSERT INTO paper_orders (
 			account_id, symbol, side, position_side, order_type,
 			quantity, price, avg_price, fee, status, realized_pnl,
