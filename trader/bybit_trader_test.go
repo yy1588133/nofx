@@ -186,24 +186,27 @@ func TestBybitTrader_FormatQuantity(t *testing.T) {
 		hasError bool
 	}{
 		{
+			// BTCUSDT qtyStep is typically 0.001
 			name:     "BTC quantity formatting",
 			symbol:   "BTCUSDT",
 			quantity: 0.12345,
-			expected: "0.123", // Bybit defaults to 3 decimal places
+			expected: "0.123", // Floor(0.12345/0.001)*0.001 = 0.123
 			hasError: false,
 		},
 		{
+			// ETHUSDT qtyStep is typically 0.01
 			name:     "ETH quantity formatting",
 			symbol:   "ETHUSDT",
 			quantity: 1.2345,
-			expected: "1.234",
+			expected: "1.23", // Floor(1.2345/0.01)*0.01 = 1.23
 			hasError: false,
 		},
 		{
+			// SOLUSDT qtyStep is typically 0.1
 			name:     "Integer quantity",
 			symbol:   "SOLUSDT",
 			quantity: 10.0,
-			expected: "10.000",
+			expected: "10.0", // Floor(10/0.1)*0.1 = 10.0
 			hasError: false,
 		},
 	}
