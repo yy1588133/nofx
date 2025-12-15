@@ -13,6 +13,7 @@ import (
 type PaperAccount struct {
 	ID              string    `json:"id"`
 	UserID          string    `json:"user_id"`
+	TraderID        string    `json:"trader_id"`         // 交易员ID - 隔离键 (每个交易员独立账户)
 	ExchangeID      string    `json:"exchange_id"`       // paper exchange UUID
 	InitialBalance  float64   `json:"initial_balance"`   // 初始资金
 	CurrentBalance  float64   `json:"current_balance"`   // 当前可用余额
@@ -74,11 +75,13 @@ func NewPaperAccountStore(db *sql.DB) *PaperAccountStore {
 // InitTables initializes paper trading tables
 func (s *PaperAccountStore) InitTables() error {
 	// Create paper_accounts table
+	// trader_id 是新的隔离键，每个交易员有独立账户
 	_, err := s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS paper_accounts (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
-			exchange_id TEXT NOT NULL UNIQUE,
+			trader_id TEXT NOT NULL DEFAULT '',
+			exchange_id TEXT NOT NULL,
 			initial_balance REAL NOT NULL DEFAULT 10000,
 			current_balance REAL NOT NULL DEFAULT 10000,
 			total_margin_used REAL DEFAULT 0,
@@ -152,7 +155,137 @@ func (s *PaperAccountStore) InitTables() error {
 		}
 	}
 
+	// Migration: add trader_id column for trader isolation (for existing databases)
+	s.db.Exec(`ALTER TABLE paper_accounts ADD COLUMN trader_id TEXT NOT NULL DEFAULT ''`)
+
+	// Create unique index on trader_id for isolation
+	s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_paper_accounts_trader ON paper_accounts(trader_id) WHERE trader_id != ''`)
+
+	// Migration: Remove legacy UNIQUE constraint on exchange_id
+	// Old databases have "exchange_id TEXT NOT NULL UNIQUE" which prevents multiple traders
+	// from sharing the same Paper Exchange. New design uses trader_id as isolation key.
+	if err := s.migrateRemoveExchangeIdUnique(); err != nil {
+		logger.Warnf("⚠️ Failed to migrate paper_accounts schema: %v (may already be migrated)", err)
+	}
+
 	return nil
+}
+
+// migrateRemoveExchangeIdUnique removes the legacy UNIQUE constraint on exchange_id
+// This allows multiple traders to share the same Paper Exchange
+func (s *PaperAccountStore) migrateRemoveExchangeIdUnique() error {
+	// Check if exchange_id has UNIQUE constraint by querying sqlite_master
+	var indexName string
+	err := s.db.QueryRow(`
+		SELECT name FROM sqlite_master 
+		WHERE type = 'index' 
+		AND tbl_name = 'paper_accounts' 
+		AND sql LIKE '%exchange_id%UNIQUE%'
+	`).Scan(&indexName)
+
+	// Also check for inline UNIQUE constraint in CREATE TABLE
+	var createSQL string
+	err2 := s.db.QueryRow(`
+		SELECT sql FROM sqlite_master 
+		WHERE type = 'table' AND name = 'paper_accounts'
+	`).Scan(&createSQL)
+
+	// If no UNIQUE constraint found (either as index or inline), skip migration
+	hasInlineUnique := err2 == nil && (contains(createSQL, "exchange_id TEXT NOT NULL UNIQUE") || 
+		contains(createSQL, "exchange_id TEXT UNIQUE") ||
+		contains(createSQL, "UNIQUE") && contains(createSQL, "exchange_id"))
+	hasIndexUnique := err == nil && indexName != ""
+
+	if !hasInlineUnique && !hasIndexUnique {
+		return nil // Already migrated or never had the constraint
+	}
+
+	logger.Infof("🔄 Migrating paper_accounts: removing exchange_id UNIQUE constraint...")
+
+	// SQLite doesn't support DROP CONSTRAINT, so we need to recreate the table
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// 1. Create new table without UNIQUE on exchange_id
+	_, err = tx.Exec(`
+		CREATE TABLE paper_accounts_new (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			trader_id TEXT NOT NULL DEFAULT '',
+			exchange_id TEXT NOT NULL,
+			initial_balance REAL NOT NULL DEFAULT 10000,
+			current_balance REAL NOT NULL DEFAULT 10000,
+			total_margin_used REAL DEFAULT 0,
+			total_pnl REAL DEFAULT 0,
+			slippage_rate REAL DEFAULT 0.0005,
+			fee_rate REAL DEFAULT 0.0004,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create new table: %w", err)
+	}
+
+	// 2. Copy data from old table
+	_, err = tx.Exec(`
+		INSERT INTO paper_accounts_new 
+		SELECT id, user_id, COALESCE(trader_id, ''), exchange_id, 
+		       initial_balance, current_balance, total_margin_used, total_pnl,
+		       slippage_rate, fee_rate, created_at, updated_at
+		FROM paper_accounts
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to copy data: %w", err)
+	}
+
+	// 3. Drop old table
+	_, err = tx.Exec(`DROP TABLE paper_accounts`)
+	if err != nil {
+		return fmt.Errorf("failed to drop old table: %w", err)
+	}
+
+	// 4. Rename new table
+	_, err = tx.Exec(`ALTER TABLE paper_accounts_new RENAME TO paper_accounts`)
+	if err != nil {
+		return fmt.Errorf("failed to rename table: %w", err)
+	}
+
+	// 5. Recreate the trader_id unique index
+	_, err = tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_paper_accounts_trader ON paper_accounts(trader_id) WHERE trader_id != ''`)
+	if err != nil {
+		return fmt.Errorf("failed to create trader_id index: %w", err)
+	}
+
+	// Commit transaction
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit migration: %w", err)
+	}
+
+	logger.Infof("✅ Successfully migrated paper_accounts: exchange_id UNIQUE constraint removed")
+	return nil
+}
+
+// contains checks if s contains substr (simple helper to avoid strings import in hot path)
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && findSubstr(s, substr)))
+}
+
+func findSubstr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 // =============================================================================
@@ -184,12 +317,12 @@ func (s *PaperAccountStore) Create(account *PaperAccount) error {
 
 	_, err := s.db.Exec(`
 		INSERT INTO paper_accounts (
-			id, user_id, exchange_id, initial_balance, current_balance,
+			id, user_id, trader_id, exchange_id, initial_balance, current_balance,
 			total_margin_used, total_pnl, slippage_rate, fee_rate,
 			created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
-		account.ID, account.UserID, account.ExchangeID,
+		account.ID, account.UserID, account.TraderID, account.ExchangeID,
 		account.InitialBalance, account.CurrentBalance,
 		account.TotalMarginUsed, account.TotalPnL,
 		account.SlippageRate, account.FeeRate,
@@ -208,13 +341,14 @@ func (s *PaperAccountStore) Get(userID, exchangeID string) (*PaperAccount, error
 	var createdAt, updatedAt string
 
 	err := s.db.QueryRow(`
-		SELECT id, user_id, exchange_id, initial_balance, current_balance,
+		SELECT id, user_id, COALESCE(trader_id, '') as trader_id, exchange_id, 
+		       initial_balance, current_balance,
 		       total_margin_used, total_pnl, slippage_rate, fee_rate,
 		       created_at, updated_at
 		FROM paper_accounts
 		WHERE user_id = ? AND exchange_id = ?
 	`, userID, exchangeID).Scan(
-		&account.ID, &account.UserID, &account.ExchangeID,
+		&account.ID, &account.UserID, &account.TraderID, &account.ExchangeID,
 		&account.InitialBalance, &account.CurrentBalance,
 		&account.TotalMarginUsed, &account.TotalPnL,
 		&account.SlippageRate, &account.FeeRate,
@@ -239,13 +373,14 @@ func (s *PaperAccountStore) GetByID(accountID string) (*PaperAccount, error) {
 	var createdAt, updatedAt string
 
 	err := s.db.QueryRow(`
-		SELECT id, user_id, exchange_id, initial_balance, current_balance,
+		SELECT id, user_id, COALESCE(trader_id, '') as trader_id, exchange_id, 
+		       initial_balance, current_balance,
 		       total_margin_used, total_pnl, slippage_rate, fee_rate,
 		       created_at, updated_at
 		FROM paper_accounts
 		WHERE id = ?
 	`, accountID).Scan(
-		&account.ID, &account.UserID, &account.ExchangeID,
+		&account.ID, &account.UserID, &account.TraderID, &account.ExchangeID,
 		&account.InitialBalance, &account.CurrentBalance,
 		&account.TotalMarginUsed, &account.TotalPnL,
 		&account.SlippageRate, &account.FeeRate,
@@ -256,6 +391,38 @@ func (s *PaperAccountStore) GetByID(accountID string) (*PaperAccount, error) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get paper account by ID: %w", err)
+	}
+
+	account.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+	account.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+
+	return &account, nil
+}
+
+// GetByTraderID gets paper account by trader ID (new isolation key)
+func (s *PaperAccountStore) GetByTraderID(traderID string) (*PaperAccount, error) {
+	var account PaperAccount
+	var createdAt, updatedAt string
+
+	err := s.db.QueryRow(`
+		SELECT id, user_id, COALESCE(trader_id, '') as trader_id, exchange_id, 
+		       initial_balance, current_balance,
+		       total_margin_used, total_pnl, slippage_rate, fee_rate,
+		       created_at, updated_at
+		FROM paper_accounts
+		WHERE trader_id = ?
+	`, traderID).Scan(
+		&account.ID, &account.UserID, &account.TraderID, &account.ExchangeID,
+		&account.InitialBalance, &account.CurrentBalance,
+		&account.TotalMarginUsed, &account.TotalPnL,
+		&account.SlippageRate, &account.FeeRate,
+		&createdAt, &updatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get paper account by trader ID: %w", err)
 	}
 
 	account.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
@@ -811,7 +978,48 @@ func (s *PaperAccountStore) DeleteByExchangeID(exchangeID string) error {
 	if err != nil {
 		return fmt.Errorf("failed to delete paper account: %w", err)
 	}
+logger.Infof("🗑️ Deleted paper account and related data: exchangeID=%s, accountID=%s", exchangeID, accountID)
+	return nil
+}
 
-	logger.Infof("🗑️ Deleted paper account and related data: exchangeID=%s, accountID=%s", exchangeID, accountID)
+// DeleteByTraderID deletes paper account and related data by trader ID
+func (s *PaperAccountStore) DeleteByTraderID(traderID string) error {
+	// First get account by trader ID
+	account, err := s.GetByTraderID(traderID)
+	if err != nil {
+		return err
+	}
+	if account == nil {
+		// Nothing to delete
+		return nil
+	}
+
+	// Delete in transaction
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete positions
+	if _, err := tx.Exec(`DELETE FROM paper_positions WHERE account_id = ?`, account.ID); err != nil {
+		return fmt.Errorf("failed to delete positions: %w", err)
+	}
+
+	// Delete orders
+	if _, err := tx.Exec(`DELETE FROM paper_orders WHERE account_id = ?`, account.ID); err != nil {
+		return fmt.Errorf("failed to delete orders: %w", err)
+	}
+
+	// Delete account
+	if _, err := tx.Exec(`DELETE FROM paper_accounts WHERE id = ?`, account.ID); err != nil {
+		return fmt.Errorf("failed to delete account: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	logger.Infof("🗑️ Deleted paper account and related data: traderID=%s, accountID=%s", traderID, account.ID)
 	return nil
 }

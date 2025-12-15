@@ -15,6 +15,7 @@ import (
 type PaperTrader struct {
 	store         *store.Store
 	userID        string
+	traderID      string  // 交易员ID - 隔离键
 	exchangeID    string  // Paper exchange UUID
 	accountID     string  // Paper account ID
 	slippageRate  float64 // 滑点率 (默认 0.0005 = 0.05%)
@@ -26,18 +27,20 @@ type PaperTrader struct {
 var _ Trader = (*PaperTrader)(nil)
 
 // NewPaperTrader 创建 Paper Trader 实例
-func NewPaperTrader(userID, exchangeID string, initialBalance float64, st *store.Store) (*PaperTrader, error) {
-	// 检查或创建 Paper Account
-	account, err := st.PaperAccount().Get(userID, exchangeID)
+// traderID 用于隔离不同交易员的虚拟账户，即使使用同一个 Paper Exchange 也是独立的
+func NewPaperTrader(userID, traderID, exchangeID string, initialBalance float64, st *store.Store) (*PaperTrader, error) {
+	// 检查或创建 Paper Account - 使用 traderID 作为隔离键
+	account, err := st.PaperAccount().GetByTraderID(traderID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get paper account: %w", err)
 	}
 
 	if account == nil {
-		// 创建新账户
+		// 创建新账户 - 使用 traderID 作为隔离键
 		account = &store.PaperAccount{
-			ID:             fmt.Sprintf("paper_%s", exchangeID),
+			ID:             fmt.Sprintf("paper_%s", traderID),
 			UserID:         userID,
+			TraderID:       traderID,
 			ExchangeID:     exchangeID,
 			InitialBalance: initialBalance,
 			CurrentBalance: initialBalance,
@@ -57,6 +60,7 @@ func NewPaperTrader(userID, exchangeID string, initialBalance float64, st *store
 	return &PaperTrader{
 		store:        st,
 		userID:       userID,
+		traderID:     traderID,
 		exchangeID:   exchangeID,
 		accountID:    account.ID,
 		slippageRate: account.SlippageRate,

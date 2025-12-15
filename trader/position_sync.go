@@ -523,6 +523,7 @@ func (m *PositionSyncManager) createTrader(config *store.TraderFullConfig) (Trad
 	case "paper":
 		return NewPaperTrader(
 			config.Trader.UserID,
+			config.Trader.ID,
 			exchange.ID,
 			config.Trader.InitialBalance,
 			m.store,

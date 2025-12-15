@@ -267,7 +267,7 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		}
 	case "paper":
 		logger.Infof("📝 [%s] Using Paper Trading (simulated)", config.Name)
-		trader, err = NewPaperTrader(userID, config.ExchangeID, config.InitialBalance, st)
+		trader, err = NewPaperTrader(userID, config.ID, config.ExchangeID, config.InitialBalance, st)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Paper trader: %w", err)
 		}

@@ -844,25 +844,14 @@ func (s *Server) handleDeleteTrader(c *gin.Context) {
 		return
 	}
 
-	// Clean up Paper Account if this is the last trader using the paper exchange
+	// Clean up Paper Account for this trader (each trader has its own paper account now)
 	if traderCfg != nil && traderCfg.Exchange != nil && traderCfg.Exchange.ExchangeType == "paper" {
-		// Check if any other traders are using this exchange
-		traders, _ := s.store.Trader().List(userID)
-		exchangeInUse := false
-		for _, t := range traders {
-			if t.ExchangeID == traderCfg.Exchange.ID {
-				exchangeInUse = true
-				break
-			}
-		}
-		// If no other trader uses this paper exchange, clean up the paper account
-		if !exchangeInUse {
-			if err := s.store.PaperAccount().DeleteByExchangeID(traderCfg.Exchange.ID); err != nil {
-				logger.Warnf("⚠️ Failed to clean up paper account: %v", err)
-				// Don't interrupt the delete flow, just log warning
-			} else {
-				logger.Infof("🗑️ Cleaned up paper account for exchange: %s", traderCfg.Exchange.ID)
-			}
+		// Directly delete the paper account by traderID (new isolation model)
+		if err := s.store.PaperAccount().DeleteByTraderID(traderID); err != nil {
+			logger.Warnf("⚠️ Failed to clean up paper account: %v", err)
+			// Don't interrupt the delete flow, just log warning
+		} else {
+			logger.Infof("🗑️ Cleaned up paper account for trader: %s", traderID)
 		}
 	}
 
