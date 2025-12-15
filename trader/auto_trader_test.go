@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -17,15 +16,15 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-func normalizeSymbol(symbol string) string {
-	return market.Normalize(strings.TrimSpace(symbol))
-}
+// NOTE: normalizeSymbol is defined in lighter_trader_v2_trading.go
+// We don't redefine it here to avoid redeclaration error
 
 // ============================================================
 // AutoTraderTestSuite - Structured testing using testify/suite
 // ============================================================
 
 // AutoTraderTestSuite Test suite for AutoTrader
+
 // Uses testify/suite to organize tests, providing unified setup/teardown and mock management
 type AutoTraderTestSuite struct {
 	suite.Suite
@@ -342,7 +341,13 @@ func (s *AutoTraderTestSuite) TestGetCandidateCoins() {
 		s.Equal("BTCUSDT", coins[0].Symbol)
 		s.Equal("ETHUSDT", coins[1].Symbol)
 		s.Equal("BNBUSDT", coins[2].Symbol)
+		s.Contains(coins[0].Sources, "default")
 	})
+
+	// NOTE: The following test cases were removed because they reference
+	// internal fields (tradingCoins, defaultCoins, getCandidateCoins) that
+	// don't exist in the current AutoTrader implementation.
+	// The coin selection logic is now handled by strategyEngine.GetCandidateCoins()
 }
 
 // ============================================================

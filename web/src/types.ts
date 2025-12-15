@@ -46,11 +46,14 @@ export interface DecisionAction {
   quantity: number
   leverage: number
   price: number
+  stop_loss?: number // Stop loss price
+  take_profit?: number // Take profit price
+  confidence?: number // AI confidence (0-100)
+  reasoning?: string // Brief reasoning
   order_id: number
   timestamp: string
   success: boolean
   error?: string
-  reasoning?: string
 }
 
 export interface AccountSnapshot {
@@ -131,6 +134,7 @@ export interface Exchange {
   lighterWalletAddr?: string
   lighterPrivateKey?: string
   lighterApiKeyPrivateKey?: string
+  lighterApiKeyIndex?: number
   // Paper Trading specific
   initial_balance?: number // Paper Trading: 初始资金
 }
@@ -150,6 +154,7 @@ export interface CreateExchangeRequest {
   lighter_wallet_addr?: string
   lighter_private_key?: string
   lighter_api_key_private_key?: string
+  lighter_api_key_index?: number
   initial_balance?: number // Paper Trading: 初始资金，默认10000
 }
 
@@ -202,6 +207,7 @@ export interface UpdateExchangeConfigRequest {
       lighter_wallet_addr?: string
       lighter_private_key?: string
       lighter_api_key_private_key?: string
+      lighter_api_key_index?: number
     }
   }
 }

@@ -52,6 +52,7 @@ interface ExchangeConfigModalProps {
     lighterWalletAddr?: string,
     lighterPrivateKey?: string,
     lighterApiKeyPrivateKey?: string,
+    lighterApiKeyIndex?: number,
     initialBalance?: number // Paper Trading: 初始资金
   ) => Promise<void>
   onDelete: (exchangeId: string) => void
@@ -98,6 +99,7 @@ export function ExchangeConfigModal({
   const [lighterWalletAddr, setLighterWalletAddr] = useState('')
   const [lighterPrivateKey, setLighterPrivateKey] = useState('')
   const [lighterApiKeyPrivateKey, setLighterApiKeyPrivateKey] = useState('')
+  const [lighterApiKeyIndex, setLighterApiKeyIndex] = useState(0)
 
   // 安全输入状态
   const [secureInputTarget, setSecureInputTarget] = useState<
@@ -157,7 +159,10 @@ export function ExchangeConfigModal({
       url: 'https://www.asterdex.com/en/referral/fdfc0e',
       hasReferral: true,
     },
-    lighter: { url: 'https://lighter.xyz', hasReferral: false },
+    lighter: {
+      url: 'https://app.lighter.xyz/?referral=68151432',
+      hasReferral: true,
+    },
   }
 
   // 如果是编辑现有交易所，初始化表单数据
@@ -187,8 +192,8 @@ export function ExchangeConfigModal({
 
       // LIGHTER 字段
       setLighterWalletAddr(selectedExchange.lighterWalletAddr || '')
-      setLighterPrivateKey('') // Don't load existing private key for security
       setLighterApiKeyPrivateKey('') // Don't load existing API key for security
+      setLighterApiKeyIndex(selectedExchange.lighterApiKeyIndex || 0)
     }
   }, [editingExchangeId, selectedExchange])
 
@@ -275,8 +280,8 @@ export function ExchangeConfigModal({
       setAsterPrivateKey(trimmed)
     }
     if (secureInputTarget === 'lighter') {
-      setLighterPrivateKey(trimmed)
-      toast.success(t('lighterPrivateKeyImported', language))
+      setLighterApiKeyPrivateKey(trimmed)
+      toast.success(t('lighterApiKeyImported', language))
     }
     // 仅在开发环境输出调试信息
     if (import.meta.env.DEV) {
@@ -380,22 +385,23 @@ export function ExchangeConfigModal({
           asterPrivateKey.trim()
         )
       } else if (currentExchangeType === 'lighter') {
-        if (!lighterWalletAddr.trim() || !lighterPrivateKey.trim()) return
+        if (!lighterWalletAddr.trim() || !lighterApiKeyPrivateKey.trim()) return
         await onSave(
           exchangeId,
           exchangeType,
           trimmedAccountName,
-          lighterPrivateKey.trim(),
+          '', // apiKey not used for Lighter
           '',
           '',
           testnet,
+          undefined, // hyperliquidWalletAddr
+          undefined, // asterUser
+          undefined, // asterSigner
+          undefined, // asterPrivateKey
           lighterWalletAddr.trim(),
-          undefined,
-          undefined,
-          undefined,
-          lighterWalletAddr.trim(),
-          lighterPrivateKey.trim(),
-          lighterApiKeyPrivateKey.trim()
+          '', // lighterPrivateKey (L1) no longer needed
+          lighterApiKeyPrivateKey.trim(),
+          lighterApiKeyIndex
         )
       } else if (currentExchangeType === 'paper') {
         // Paper Trading - no API keys required, only account name
@@ -1161,13 +1167,46 @@ export function ExchangeConfigModal({
                 {/* LIGHTER 特定配置 */}
                 {currentExchangeType === 'lighter' && (
                   <>
+                    {/* Info banner */}
+                    <div
+                      className="p-3 rounded mb-4"
+                      style={{
+                        background: 'rgba(240, 185, 11, 0.1)',
+                        border: '1px solid rgba(240, 185, 11, 0.3)',
+                      }}
+                    >
+                      <div className="flex items-start gap-2">
+                        <span style={{ color: '#F0B90B', fontSize: '16px' }}>
+                          🔐
+                        </span>
+                        <div className="flex-1">
+                          <div
+                            className="text-sm font-semibold mb-1"
+                            style={{ color: '#F0B90B' }}
+                          >
+                            {language === 'zh'
+                              ? 'Lighter API Key 配置'
+                              : 'Lighter API Key Setup'}
+                          </div>
+                          <div
+                            className="text-xs"
+                            style={{ color: '#848E9C', lineHeight: '1.5' }}
+                          >
+                            {language === 'zh'
+                              ? '请在 Lighter 网站生成 API Key，然后填写钱包地址、API Key 私钥和索引。'
+                              : 'Generate an API Key on the Lighter website, then enter your wallet address, API Key private key, and index.'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
                     {/* L1 Wallet Address */}
                     <div className="mb-4">
                       <label
                         className="block text-sm font-semibold mb-2"
                         style={{ color: '#EAECEF' }}
                       >
-                        {t('lighterWalletAddress', language)}
+                        {t('lighterWalletAddress', language)} *
                       </label>
                       <input
                         type="text"
@@ -1190,13 +1229,13 @@ export function ExchangeConfigModal({
                       </div>
                     </div>
 
-                    {/* L1 Private Key */}
+                    {/* API Key Private Key */}
                     <div className="mb-4">
                       <label
                         className="block text-sm font-semibold mb-2"
                         style={{ color: '#EAECEF' }}
                       >
-                        {t('lighterPrivateKey', language)}
+                        {t('lighterApiKeyPrivateKey', language)} *
                         <button
                           type="button"
                           onClick={() => setSecureInputTarget('lighter')}
@@ -1251,6 +1290,7 @@ export function ExchangeConfigModal({
                           border: '1px solid #2B3139',
                           color: '#EAECEF',
                         }}
+                        required
                       />
                       <div
                         className="text-xs mt-1"
@@ -1303,6 +1343,52 @@ export function ExchangeConfigModal({
                         {lighterApiKeyPrivateKey
                           ? t('lighterV2Description', language)
                           : t('lighterV1Description', language)}
+                      </div>
+                    </div>
+
+                    {/* API Key Index */}
+                    <div className="mb-4">
+                      <label
+                        className="block text-sm font-semibold mb-2 flex items-center gap-2"
+                        style={{ color: '#EAECEF' }}
+                      >
+                        {language === 'zh' ? 'API Key 索引' : 'API Key Index'}
+                        <Tooltip
+                          content={
+                            language === 'zh'
+                              ? 'Lighter 允许每个账户创建多个 API Key（最多256个）。索引值对应您创建的第几个 API Key，从0开始计数。如果您只创建了一个 API Key，请使用默认值 0。'
+                              : 'Lighter allows creating multiple API Keys per account (up to 256). The index corresponds to which API Key you created, starting from 0. If you only created one API Key, use the default value 0.'
+                          }
+                        >
+                          <HelpCircle
+                            className="w-4 h-4 cursor-help"
+                            style={{ color: '#F0B90B' }}
+                          />
+                        </Tooltip>
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={255}
+                        value={lighterApiKeyIndex}
+                        onChange={(e) =>
+                          setLighterApiKeyIndex(parseInt(e.target.value) || 0)
+                        }
+                        placeholder="0"
+                        className="w-full px-3 py-2 rounded"
+                        style={{
+                          background: '#0B0E11',
+                          border: '1px solid #2B3139',
+                          color: '#EAECEF',
+                        }}
+                      />
+                      <div
+                        className="text-xs mt-1"
+                        style={{ color: '#848E9C' }}
+                      >
+                        {language === 'zh'
+                          ? '默认为 0。如果您在 Lighter 创建了多个 API Key，请填写对应的索引号（0-255）。'
+                          : 'Default is 0. If you created multiple API Keys on Lighter, enter the corresponding index (0-255).'}
                       </div>
                     </div>
                   </>
@@ -1408,7 +1494,8 @@ export function ExchangeConfigModal({
                     !asterSigner.trim() ||
                     !asterPrivateKey.trim())) ||
                 (currentExchangeType === 'lighter' &&
-                  (!lighterWalletAddr.trim() || !lighterPrivateKey.trim())) ||
+                  (!lighterWalletAddr.trim() ||
+                    !lighterApiKeyPrivateKey.trim())) ||
                 (currentExchangeType === 'bybit' &&
                   (!apiKey.trim() || !secretKey.trim())) ||
                 (selectedTemplate?.type === 'cex' &&

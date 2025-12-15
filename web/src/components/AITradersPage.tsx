@@ -329,7 +329,10 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
       }
 
       console.log('🔥 handleSaveEditTrader - data:', data)
-      console.log('🔥 handleSaveEditTrader - data.strategy_id:', data.strategy_id)
+      console.log(
+        '🔥 handleSaveEditTrader - data.strategy_id:',
+        data.strategy_id
+      )
       console.log('🔥 handleSaveEditTrader - request:', request)
 
       await toast.promise(api.updateTrader(editingTrader.trader_id, request), {
@@ -662,6 +665,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
     lighterWalletAddr?: string,
     lighterPrivateKey?: string,
     lighterApiKeyPrivateKey?: string,
+    lighterApiKeyIndex?: number,
     initialBalance?: number // Paper Trading: 初始资金
   ) => {
     try {
@@ -688,6 +692,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
               lighter_wallet_addr: lighterWalletAddr || '',
               lighter_private_key: lighterPrivateKey || '',
               lighter_api_key_private_key: lighterApiKeyPrivateKey || '',
+              lighter_api_key_index: lighterApiKeyIndex || 0,
             },
           },
         }
@@ -721,6 +726,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           lighter_wallet_addr: lighterWalletAddr || '',
           lighter_private_key: lighterPrivateKey || '',
           lighter_api_key_private_key: lighterApiKeyPrivateKey || '',
+          lighter_api_key_index: lighterApiKeyIndex || 0,
           initial_balance: initialBalance || 10000, // Paper Trading 默认 10000
         }
 
