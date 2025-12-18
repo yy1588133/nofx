@@ -1,11 +1,12 @@
 # AGENTS.md - NOFX Project Documentation
 
 ## Project Name
+
 **NOFX** - Agentic Trading OS: AI-Powered Decentralized Crypto Trading Platform
 
 ## Overview
 
-**NOFX** is an innovative open-source AI trading system that enables users to run multiple AI models (DeepSeek, Qwen, GPT, Claude, Gemini, Grok, Kimi) to trade cryptocurrency futures automatically across multiple exchanges (Binance, Bybit, OKX, Hyperliquid, Aster DEX, Lighter). 
+**NOFX** is an innovative open-source AI trading system that enables users to run multiple AI models (DeepSeek, Qwen, GPT, Claude, Gemini, Grok, Kimi) to trade cryptocurrency futures automatically across multiple exchanges (Binance, Bybit, OKX, Hyperliquid, Aster DEX, Lighter).
 
 The platform features a web-based configuration interface that eliminates the need for manual JSON editing, a real-time dashboard for monitoring performance, and a unique AI competition mode where multiple AI traders compete simultaneously to find optimal trading strategies. Users can configure strategies through a visual Strategy Studio with support for various technical indicators, risk controls, and coin sources.
 
@@ -14,6 +15,7 @@ This system is experimental and recommended for learning, research, or small-sca
 ## Technology Stack
 
 ### Backend
+
 - **Language**: Go 1.25.0
 - **API Framework**: Gin-gonic (HTTP server & routing)
 - **Database**: SQLite (modernc.org/sqlite)
@@ -31,6 +33,7 @@ This system is experimental and recommended for learning, research, or small-sca
 - **Environment**: godotenv for .env support
 
 ### Frontend
+
 - **Language**: TypeScript 5.8+
 - **Framework**: React 18.3+
 - **Build Tool**: Vite 6.0+
@@ -47,6 +50,7 @@ This system is experimental and recommended for learning, research, or small-sca
 - **Dev Tools**: Husky + lint-staged for git hooks
 
 ### DevOps & Infrastructure
+
 - **Containerization**: Docker & Docker Compose
 - **Reverse Proxy**: Nginx (for frontend serving)
 - **Encryption**: Web Crypto API for browser-side encryption
@@ -222,12 +226,14 @@ nofx/
 ### Prerequisites
 
 #### System Requirements
+
 - **macOS/Linux**: Bash shell
 - **Windows**: WSL2 or manual installation
 - **RAM**: 2GB minimum (4GB+ recommended for running multiple AI traders)
 - **Disk**: 500MB+ for database and logs
 
 #### Required Software
+
 - **Go 1.21+**
 - **Node.js 18+** (with npm)
 - **TA-Lib** (technical analysis library)
@@ -267,6 +273,7 @@ Access web interface at: **http://localhost:3000**
 #### Option 3: Manual Development Installation
 
 ##### macOS
+
 ```bash
 # Install TA-Lib
 brew install ta-lib
@@ -295,6 +302,7 @@ npm run dev
 ```
 
 ##### Ubuntu/Debian
+
 ```bash
 # Install TA-Lib
 sudo apt-get install libta-lib0-dev
@@ -323,6 +331,7 @@ npm run dev
 ```
 
 ##### Windows (WSL2)
+
 ```bash
 # Inside WSL2 Ubuntu environment, follow Ubuntu/Debian instructions above
 ```
@@ -345,6 +354,7 @@ After starting NOFX, complete the web interface setup:
 ### Usage Examples
 
 #### Using Docker (Easiest)
+
 ```bash
 # Development with file watching
 docker compose up -d
@@ -357,6 +367,7 @@ docker compose logs -f nofx
 ```
 
 #### Using Make Commands
+
 ```bash
 # Start backend
 make run
@@ -376,6 +387,7 @@ make clean
 ```
 
 #### Using npm (Frontend)
+
 ```bash
 # Development mode with HMR
 cd web
@@ -402,6 +414,7 @@ npm run format
 ### Available Scripts
 
 #### Go Backend
+
 ```bash
 # Run backend in development
 go run main.go
@@ -421,6 +434,7 @@ golangci-lint run
 ```
 
 #### TypeScript/React Frontend
+
 ```bash
 cd web
 
@@ -447,6 +461,7 @@ npm run format:check
 ```
 
 #### Make Commands (Convenient Wrapper)
+
 ```bash
 make help          # Show all available commands
 make test          # Run all tests
@@ -472,6 +487,7 @@ make deps-frontend # Install frontend dependencies
 ### Development Workflow
 
 1. **Setup**: Clone repo and install dependencies
+
    ```bash
    git clone https://github.com/NoFxAiOS/nofx.git
    cd nofx
@@ -480,37 +496,41 @@ make deps-frontend # Install frontend dependencies
    ```
 
 2. **Create .env file**: Copy from `.env.example` and configure
+
    ```bash
    cp .env.example .env
    # Edit .env with your settings
    ```
 
 3. **Development**: Run backend and frontend in separate terminals
+
    ```bash
    # Terminal 1: Backend
    make run
-   
+
    # Terminal 2: Frontend
    make run-frontend
    ```
 
 4. **Testing**: Write tests alongside code
+
    ```bash
    # Run tests
    make test
-   
+
    # Generate coverage
    make test-coverage
    ```
 
 5. **Code Quality**:
+
    ```bash
    # Format Go code
    make fmt
-   
+
    # Lint Go code
    make lint
-   
+
    # Format TypeScript/React
    cd web && npm run lint:fix && npm run format
    ```
@@ -524,18 +544,21 @@ make deps-frontend # Install frontend dependencies
 ### Testing Strategy
 
 **Backend Testing**:
+
 - Unit tests for each Go package
 - Integration tests for trader implementations
 - Race condition tests for concurrent operations
 - Mock external API calls
 
 **Frontend Testing**:
+
 - Component tests with React Testing Library
 - Vitest runner for fast execution
 - ESLint for code quality
 - Prettier for code formatting
 
 Run tests before committing:
+
 ```bash
 make test
 ```
@@ -545,6 +568,7 @@ make test
 ### Environment Variables (.env)
 
 **Server Configuration**
+
 ```bash
 NOFX_BACKEND_PORT=8080        # Backend API port
 NOFX_FRONTEND_PORT=3000        # Frontend web server port
@@ -552,12 +576,14 @@ NOFX_TIMEZONE=Asia/Shanghai    # Application timezone
 ```
 
 **Authentication (Required)**
+
 ```bash
 JWT_SECRET=<32+ character random string>  # JWT signing secret
 # Generate: openssl rand -base64 32
 ```
 
 **Encryption Keys (Required)**
+
 ```bash
 DATA_ENCRYPTION_KEY=<32-byte base64 encoded>  # AES-256 key for database
 RSA_PRIVATE_KEY=<PEM format RSA key>         # Client-server encryption
@@ -566,12 +592,14 @@ RSA_PRIVATE_KEY=<PEM format RSA key>         # Client-server encryption
 ```
 
 **Security Options**
+
 ```bash
 TRANSPORT_ENCRYPTION=false    # Enable browser-side encryption of API keys
 # true = HTTPS required, false = HTTP/IP access allowed
 ```
 
 **Optional Services**
+
 ```bash
 TELEGRAM_BOT_TOKEN=<token>    # Telegram notifications
 TELEGRAM_CHAT_ID=<chat_id>    # Where to send notifications
@@ -692,6 +720,7 @@ TELEGRAM_CHAT_ID=<chat_id>    # Where to send notifications
 ### Data Flow
 
 1. **Trading Loop**:
+
    - Market data fetched via WebSocket/API
    - Technical indicators calculated (TA-Lib)
    - AI model receives prompt with market data
@@ -713,6 +742,7 @@ TELEGRAM_CHAT_ID=<chat_id>    # Where to send notifications
 Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 **Contribution Types**:
+
 - **Code commits** - Bug fixes, features, improvements
 - **Bug reports** - Detailed issue descriptions
 - **Feature suggestions** - New functionality ideas
@@ -732,27 +762,184 @@ Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 All contributions are tracked. When NOFX generates revenue, contributors receive airdrops:
 
-| Contribution Type | Weight |
-|------------------|:------:|
-| **Pinned Issue PRs** | ⭐⭐⭐⭐⭐⭐ |
-| **Code Commits (Merged PRs)** | ⭐⭐⭐⭐⭐ |
-| **Bug Fixes** | ⭐⭐⭐⭐ |
-| **Feature Suggestions** | ⭐⭐⭐ |
-| **Bug Reports** | ⭐⭐ |
-| **Documentation** | ⭐⭐ |
+| Contribution Type             |    Weight    |
+| ----------------------------- | :----------: |
+| **Pinned Issue PRs**          | ⭐⭐⭐⭐⭐⭐ |
+| **Code Commits (Merged PRs)** |  ⭐⭐⭐⭐⭐  |
+| **Bug Fixes**                 |   ⭐⭐⭐⭐   |
+| **Feature Suggestions**       |    ⭐⭐⭐    |
+| **Bug Reports**               |     ⭐⭐     |
+| **Documentation**             |     ⭐⭐     |
 
 **PRs resolving Pinned Issues receive the HIGHEST rewards!**
+
+## Additional Resources
+
+### Documentation Structure
+
+- **[Architecture Overview](docs/architecture/README.md)** - Complete system design
+- **[Strategy Module](docs/architecture/STRATEGY_MODULE.md)** - Coin selection, indicators, AI prompts
+- **[Backtest Module](docs/architecture/BACKTEST_MODULE.md)** - Historical simulation, metrics
+- **[Debate Module](docs/architecture/DEBATE_MODULE.md)** - Multi-AI debate mechanism
+- **[FAQ](docs/faq/README.md)** - Common questions and troubleshooting
+- **[Security Policy](SECURITY.md)** - Vulnerability reporting guidelines
+- **[Code of Conduct](CODE_OF_CONDUCT.md)** - Community guidelines
+
+### External Resources
+
+- **[Prompt Engineering Guide](docs/prompt-guide.md)** - AI prompt optimization
+- **[P&L Documentation](docs/pnl.md)** - P&L calculation methodology
+- **[Migration Guide](docs/MIGRATION_GUIDE.md)** - Version upgrade instructions
+- **[Project Roadmap](docs/roadmap/README.md)** - Future development plans
+
+## Common Deployment Patterns
+
+### Pattern 1: Local Development (Single Machine)
+
+```bash
+# All-in-one development environment
+make run &              # Terminal 1: Backend on :8080
+cd web && npm run dev  # Terminal 2: Frontend on :3000
+# Access: http://localhost:3000
+```
+
+### Pattern 2: Docker Compose (Recommended for Servers)
+
+```bash
+# Production-ready with Nginx + Docker
+docker compose -f docker-compose.prod.yml up -d
+# Access: http://server-ip:3000 or https://yourdomain.com
+```
+
+### Pattern 3: Advanced (HTTPS with Cloudflare)
+
+```bash
+# Secure production deployment
+# 1. Add domain to Cloudflare
+# 2. Set DNS A record to server IP
+# 3. Enable "Proxied" in Cloudflare DNS
+# 4. Set .env: TRANSPORT_ENCRYPTION=true
+# 5. Access via https://yourdomain.com
+```
+
+## Troubleshooting Guide
+
+### Backend Issues
+
+**TA-Lib not found**
+
+```bash
+# macOS
+brew install ta-lib
+
+# Ubuntu/Debian
+sudo apt-get install libta-lib0-dev
+
+# WSL2
+wsl sudo apt-get install libta-lib0-dev
+```
+
+**Port already in use**
+
+```bash
+# Find process using port 8080
+lsof -i :8080
+# Kill it or use different port in .env
+export NOFX_BACKEND_PORT=8081
+```
+
+**Database locked error**
+
+```bash
+# Ensure only one instance is running
+pkill -f "go run main.go"
+rm -f data/data.db
+# Restart application
+```
+
+### Frontend Issues
+
+**Node modules not found**
+
+```bash
+cd web
+rm -rf node_modules package-lock.json
+npm install
+npm run dev
+```
+
+**WebSocket connection fails**
+
+```bash
+# Ensure backend is running on http://localhost:8080
+# Check firewall settings
+# Verify CORS in api/server.go if customizing ports
+```
+
+**Hot reload not working**
+
+```bash
+# Vite cache issue
+cd web
+rm -rf .vite
+npm run dev
+```
+
+### Docker Issues
+
+**Container fails to start**
+
+```bash
+# Check logs
+docker compose logs -f nofx
+
+# Rebuild images
+docker compose build --no-cache
+docker compose up -d
+```
+
+**Port conflicts**
+
+```bash
+# Edit docker-compose.yml to use different ports
+# ports:
+#   - "3001:3000"   # Changed from 3000:3000
+```
+
+## Performance Optimization Tips
+
+### Backend Optimization
+
+- Monitor memory usage: `watch -n 1 'docker stats'`
+- Enable database query caching for historical data
+- Use WebSocket for real-time updates instead of polling
+- Increase timeout for slow API connections: adjust in `.env`
+
+### Frontend Optimization
+
+- Use React DevTools to identify re-renders
+- Lazy load chart components for better performance
+- Zustand store is already optimized (no Redux overhead)
+- Run `npm run build` and test production build locally
+
+### Database Optimization
+
+- Backup regularly: `cp data/data.db data/data.db.backup`
+- Monitor database size: `du -h data/data.db`
+- Clean old backtest records periodically
+- Use indexes for frequently queried fields
 
 ## License
 
 This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**
 
 - **Source**: See [LICENSE](LICENSE) file
-- **Summary**: 
+- **Summary**:
   - Free for private use
   - Free for non-commercial use
   - If modified and deployed as a service, modifications must be shared
   - Suitable for learning and research
+- **Legal**: You MUST provide access to source code if you deploy this as a service
 
 ## Project Links
 
@@ -765,6 +952,7 @@ This project is licensed under the **GNU Affero General Public License v3.0 (AGP
 ## Disclaimer
 
 ⚠️ **Risk Warning**: This system is experimental. AI auto-trading carries significant financial risks. Use for:
+
 - Learning and research purposes
 - Testing with small amounts
 - Paper trading before real money
@@ -773,6 +961,8 @@ Not recommended for production trading without thorough testing and risk managem
 
 ---
 
-**Last Updated**: December 2024
-**Version**: 1.0.0
-**Maintainers**: NOFX Core Team
+**Last Updated**: December 2024  
+**Current Version**: 3.0.0  
+**Latest Changes**: Web-based configuration, SQLite database integration, multi-exchange support  
+**Maintainers**: NOFX Core Team  
+**Status**: Active Development

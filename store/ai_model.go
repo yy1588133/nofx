@@ -11,9 +11,9 @@ import (
 
 // AIModelStore AI model storage
 type AIModelStore struct {
-	db            *sql.DB
-	encryptFunc   func(string) string
-	decryptFunc   func(string) string
+	db          *sql.DB
+	encryptFunc func(string) string
+	decryptFunc func(string) string
 }
 
 // AIModel AI model configuration
@@ -231,7 +231,64 @@ func (s *AIModelStore) firstEnabled(userID string) (*AIModel, error) {
 
 // Update updates AI model, creates if not exists
 // IMPORTANT: If apiKey is empty string, the existing API key will be preserved (not overwritten)
-func (s *AIModelStore) Update(userID, id string, enabled bool, apiKey, customAPIURL, customModelName string) error {
+func (s *AIModelStore) Update(userID, id, providerHint string, enabled bool, apiKey, customAPIURL, customModelName string) error {
+
+	providerHint = strings.TrimSpace(providerHint)
+
+	// New semantics: explicit provider hint means id is a real model ID, allow multiple models per provider
+	if providerHint != "" {
+		if id == "" {
+			id = fmt.Sprintf("%s_%s_%d", userID, providerHint, time.Now().UnixNano())
+		}
+
+		// Try exact ID match first
+		var existingID string
+		err := s.db.QueryRow(`SELECT id FROM ai_models WHERE user_id = ? AND id = ? LIMIT 1`, userID, id).Scan(&existingID)
+		if err == nil {
+			logger.Infof("🆕 Updating AI model (new semantics): user=%s, id=%s, provider=%s", userID, existingID, providerHint)
+			// If apiKey is empty, preserve the existing API key
+			if apiKey == "" {
+				_, err = s.db.Exec(`
+					UPDATE ai_models SET enabled = ?, custom_api_url = ?, custom_model_name = ?, updated_at = datetime('now')
+					WHERE id = ? AND user_id = ?
+				`, enabled, customAPIURL, customModelName, existingID, userID)
+			} else {
+				encryptedAPIKey := s.encrypt(apiKey)
+				_, err = s.db.Exec(`
+					UPDATE ai_models SET enabled = ?, api_key = ?, custom_api_url = ?, custom_model_name = ?, updated_at = datetime('now')
+					WHERE id = ? AND user_id = ?
+				`, enabled, encryptedAPIKey, customAPIURL, customModelName, existingID, userID)
+			}
+			return err
+		}
+		if err != nil && err != sql.ErrNoRows {
+			return err
+		}
+
+		provider := providerHint
+
+		var name string
+		err = s.db.QueryRow(`SELECT name FROM ai_models WHERE provider = ? LIMIT 1`, provider).Scan(&name)
+		if err != nil {
+			if provider == "deepseek" {
+				name = "DeepSeek AI"
+			} else if provider == "qwen" {
+				name = "Qwen AI"
+			} else {
+				name = provider + " AI"
+			}
+		}
+
+		logger.Infof("✓ Creating new AI model configuration (new semantics): ID=%s, Provider=%s, Name=%s", id, provider, name)
+		encryptedAPIKey := s.encrypt(apiKey)
+		_, err = s.db.Exec(`
+			INSERT INTO ai_models (id, user_id, name, provider, enabled, api_key, custom_api_url, custom_model_name, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+		`, id, userID, name, provider, enabled, encryptedAPIKey, customAPIURL, customModelName)
+		return err
+	}
+
+	// Legacy logic: preserve existing behavior for provider-keyed updates
 	// Try exact ID match first
 	var existingID string
 	err := s.db.QueryRow(`SELECT id FROM ai_models WHERE user_id = ? AND id = ? LIMIT 1`, userID, id).Scan(&existingID)
@@ -273,7 +330,7 @@ func (s *AIModelStore) Update(userID, id string, enabled bool, apiKey, customAPI
 		return err
 	}
 
-	// Create new record
+	// Create new record (legacy behavior)
 	if provider == id && (provider == "deepseek" || provider == "qwen") {
 		provider = id
 	} else {

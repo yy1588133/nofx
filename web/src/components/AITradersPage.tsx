@@ -505,10 +505,14 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
         enabled: false,
       }),
       buildRequest: (models) => ({
+        // New semantics: do not key by provider; key is an internal placeholder.
+        // We pass (id, provider) in the value so backend can update/create correctly.
         models: Object.fromEntries(
-          models.map((model) => [
-            model.provider,
+          models.map((model, index) => [
+            `m${index}`,
             {
+              id: model.id,
+              provider: model.provider,
               enabled: model.enabled,
               api_key: model.apiKey || '',
               custom_api_url: model.customApiUrl || '',
@@ -540,7 +544,6 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
     try {
       // 创建或更新用户的模型配置
       const existingModel = allModels?.find((m) => m.id === modelId)
-      let updatedModels
 
       // 找到要配置的模型（优先从已配置列表，其次从支持列表）
       const modelToUpdate =
@@ -550,44 +553,18 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
         return
       }
 
-      if (existingModel) {
-        // 更新现有配置
-        updatedModels =
-          allModels?.map((m) =>
-            m.id === modelId
-              ? {
-                  ...m,
-                  apiKey,
-                  customApiUrl: customApiUrl || '',
-                  customModelName: customModelName || '',
-                  enabled: true,
-                }
-              : m
-          ) || []
-      } else {
-        // 添加新配置
-        const newModel = {
-          ...modelToUpdate,
-          apiKey,
-          customApiUrl: customApiUrl || '',
-          customModelName: customModelName || '',
-          enabled: true,
-        }
-        updatedModels = [...(allModels || []), newModel]
-      }
-
       const request = {
-        models: Object.fromEntries(
-          updatedModels.map((model) => [
-            model.provider, // 使用 provider 而不是 id
-            {
-              enabled: model.enabled,
-              api_key: model.apiKey || '',
-              custom_api_url: model.customApiUrl || '',
-              custom_model_name: model.customModelName || '',
-            },
-          ])
-        ),
+        models: {
+          // Use an internal placeholder as key; backend uses (id/provider) from the value.
+          m0: {
+            id: existingModel ? existingModel.id : '',
+            provider: modelToUpdate.provider,
+            enabled: true,
+            api_key: apiKey,
+            custom_api_url: customApiUrl || '',
+            custom_model_name: customModelName || '',
+          },
+        },
       }
 
       await toast.promise(api.updateModelConfigs(request), {
@@ -1097,14 +1074,28 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
                     <div
                       className="text-xs md:text-sm truncate"
                       style={{
-                        color: trader.ai_model.includes('deepseek')
-                          ? '#60a5fa'
-                          : '#c084fc',
+                        color: (() => {
+                          const model = allModels?.find(
+                            (m) => m.id === trader.ai_model
+                          )
+                          const provider = model?.provider || trader.ai_model
+                          return provider.includes('deepseek')
+                            ? '#60a5fa'
+                            : '#c084fc'
+                        })(),
                       }}
                     >
-                      {getModelDisplayName(
-                        trader.ai_model.split('_').pop() || trader.ai_model
-                      )}{' '}
+                      {(() => {
+                        const model = allModels?.find(
+                          (m) => m.id === trader.ai_model
+                        )
+                        if (model) {
+                          return getShortName(model.name)
+                        }
+                        return getModelDisplayName(
+                          trader.ai_model.split('_').pop() || trader.ai_model
+                        )
+                      })()}{' '}
                       Model •{' '}
                       {getExchangeDisplayName(trader.exchange_id, allExchanges)}
                     </div>

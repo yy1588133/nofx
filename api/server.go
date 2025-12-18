@@ -440,6 +440,8 @@ type SafeExchangeConfig struct {
 
 type UpdateModelConfigRequest struct {
 	Models map[string]struct {
+		ID              string `json:"id,omitempty"`
+		Provider        string `json:"provider,omitempty"`
 		Enabled         bool   `json:"enabled"`
 		APIKey          string `json:"api_key"`
 		CustomAPIURL    string `json:"custom_api_url"`
@@ -1438,10 +1440,47 @@ func (s *Server) handleUpdateModelConfigs(c *gin.Context) {
 	}
 
 	// Update each model's configuration
-	for modelID, modelData := range req.Models {
-		err := s.store.AIModel().Update(userID, modelID, modelData.Enabled, modelData.APIKey, modelData.CustomAPIURL, modelData.CustomModelName)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to update model %s: %v", modelID, err)})
+	for rawKey, modelData := range req.Models {
+		rawKeyTrimmed := strings.TrimSpace(rawKey)
+		explicitID := strings.TrimSpace(modelData.ID)
+		providerHint := strings.TrimSpace(modelData.Provider)
+
+		isLegacy := providerHint == "" && explicitID == ""
+
+		var updateErr error
+		if isLegacy {
+			// Legacy semantics: behave exactly as before (use map key as id/provider)
+			logger.Infof("🔁 Updating AI model config (legacy mode): user=%s, key=%s", userID, rawKeyTrimmed)
+			updateErr = s.store.AIModel().Update(
+				userID,
+				rawKeyTrimmed,
+				"",
+				modelData.Enabled,
+				modelData.APIKey,
+				modelData.CustomAPIURL,
+				modelData.CustomModelName,
+			)
+		} else {
+			// New semantics: explicit provider supports multiple models per provider.
+			// If explicitID is empty, store will generate a new unique ID.
+			logger.Infof("🆕 Updating AI model config (new mode): user=%s, id=%s, provider=%s, key=%s", userID, explicitID, providerHint, rawKeyTrimmed)
+			updateErr = s.store.AIModel().Update(
+				userID,
+				explicitID,
+				providerHint,
+				modelData.Enabled,
+				modelData.APIKey,
+				modelData.CustomAPIURL,
+				modelData.CustomModelName,
+			)
+		}
+
+		if updateErr != nil {
+			ref := explicitID
+			if ref == "" {
+				ref = rawKeyTrimmed
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to update model %s: %v", ref, updateErr)})
 			return
 		}
 	}

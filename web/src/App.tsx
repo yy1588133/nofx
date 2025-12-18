@@ -31,6 +31,7 @@ import type {
   Statistics,
   TraderInfo,
   Exchange,
+  AIModel,
 } from './types'
 
 type Page =
@@ -166,6 +167,16 @@ function App() {
   const { data: exchanges } = useSWR<Exchange[]>(
     user && token ? 'exchanges' : null,
     api.getExchangeConfigs,
+    {
+      refreshInterval: 60000, // 1分钟刷新一次
+      shouldRetryOnError: false,
+    }
+  )
+
+  // 获取models列表（用于显示模型名称）
+  const { data: allModels } = useSWR<AIModel[]>(
+    user && token ? 'models' : null,
+    api.getModelConfigs,
     {
       refreshInterval: 60000, // 1分钟刷新一次
       shouldRetryOnError: false,
@@ -552,6 +563,7 @@ function App() {
               setCurrentPage('traders')
             }}
             exchanges={exchanges}
+            allModels={allModels}
           />
         )}
       </main>
@@ -690,6 +702,7 @@ function TraderDetailsPage({
   onTraderSelect,
   onNavigateToTraders,
   exchanges,
+  allModels,
 }: {
   selectedTrader?: TraderInfo
   traders?: TraderInfo[]
@@ -707,6 +720,7 @@ function TraderDetailsPage({
   lastUpdate: string
   language: Language
   exchanges?: Exchange[]
+  allModels?: AIModel[]
 }) {
   const [closingPosition, setClosingPosition] = useState<string | null>(null)
   const [selectedChartSymbol, setSelectedChartSymbol] = useState<
@@ -722,7 +736,9 @@ function TraderDetailsPage({
     const confirmMsg =
       language === 'zh'
         ? `确定要平仓 ${symbol} ${side === 'LONG' ? '多仓' : '空仓'} 吗？`
-        : `Are you sure you want to close ${symbol} ${side === 'LONG' ? 'LONG' : 'SHORT'} position?`
+        : `Are you sure you want to close ${symbol} ${
+            side === 'LONG' ? 'LONG' : 'SHORT'
+          } position?`
 
     const confirmed = await confirmToast(confirmMsg, {
       title: language === 'zh' ? '确认平仓' : 'Confirm Close',
@@ -748,8 +764,8 @@ function TraderDetailsPage({
         err instanceof Error
           ? err.message
           : language === 'zh'
-            ? '平仓失败'
-            : 'Failed to close position'
+          ? '平仓失败'
+          : 'Failed to close position'
       notify.error(errorMsg)
     } finally {
       setClosingPosition(null)
@@ -958,15 +974,29 @@ function TraderDetailsPage({
             <span
               className="font-semibold"
               style={{
-                color: selectedTrader.ai_model.includes('qwen')
-                  ? '#c084fc'
-                  : '#60a5fa',
+                color: (() => {
+                  const model = allModels?.find(
+                    (m) => m.id === selectedTrader.ai_model
+                  )
+                  const provider = model?.provider || selectedTrader.ai_model
+                  return provider.includes('qwen') ? '#c084fc' : '#60a5fa'
+                })(),
               }}
             >
-              {getModelDisplayName(
-                selectedTrader.ai_model.split('_').pop() ||
-                  selectedTrader.ai_model
-              )}
+              {(() => {
+                const model = allModels?.find(
+                  (m) => m.id === selectedTrader.ai_model
+                )
+                if (model) {
+                  // 优先显示 model.name 的简短形式
+                  const parts = model.name.split('_')
+                  return parts.length > 1 ? parts[parts.length - 1] : model.name
+                }
+                return getModelDisplayName(
+                  selectedTrader.ai_model.split('_').pop() ||
+                    selectedTrader.ai_model
+                )
+              })()}
             </span>
           </span>
           <span>•</span>
@@ -1024,18 +1054,31 @@ function TraderDetailsPage({
         <StatCard
           title={t('availableBalance', language)}
           value={`${account?.available_balance?.toFixed(2) || '0.00'} USDT`}
-          subtitle={`${account?.available_balance && account?.total_equity ? ((account.available_balance / account.total_equity) * 100).toFixed(1) : '0.0'}% ${t('free', language)}`}
+          subtitle={`${
+            account?.available_balance && account?.total_equity
+              ? (
+                  (account.available_balance / account.total_equity) *
+                  100
+                ).toFixed(1)
+              : '0.0'
+          }% ${t('free', language)}`}
         />
         <StatCard
           title={t('totalPnL', language)}
-          value={`${account?.total_pnl !== undefined && account.total_pnl >= 0 ? '+' : ''}${account?.total_pnl?.toFixed(2) || '0.00'} USDT`}
+          value={`${
+            account?.total_pnl !== undefined && account.total_pnl >= 0
+              ? '+'
+              : ''
+          }${account?.total_pnl?.toFixed(2) || '0.00'} USDT`}
           change={account?.total_pnl_pct || 0}
           positive={(account?.total_pnl ?? 0) >= 0}
         />
         <StatCard
           title={t('positions', language)}
           value={`${account?.position_count || 0}`}
-          subtitle={`${t('margin', language)}: ${account?.margin_used_pct?.toFixed(1) || '0.0'}%`}
+          subtitle={`${t('margin', language)}: ${
+            account?.margin_used_pct?.toFixed(1) || '0.0'
+          }%`}
         />
       </div>
 

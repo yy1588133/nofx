@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Trophy } from 'lucide-react'
 import useSWR from 'swr'
 import { api } from '../lib/api'
-import type { CompetitionData } from '../types'
+import type { CompetitionData, AIModel } from '../types'
 import { ComparisonChart } from './ComparisonChart'
 import { TraderConfigViewModal } from './TraderConfigViewModal'
 import { getTraderColor } from '../utils/traderColors'
@@ -24,6 +24,12 @@ export function CompetitionPage() {
       dedupingInterval: 10000,
     }
   )
+
+  // 获取models列表（用于显示模型名称）
+  const { data: allModels } = useSWR<AIModel[]>('models', api.getModelConfigs, {
+    refreshInterval: 60000,
+    revalidateOnFocus: false,
+  })
 
   const handleTraderClick = async (traderId: string) => {
     try {
@@ -253,7 +259,9 @@ export function CompetitionPage() {
                     background: isLeader
                       ? 'linear-gradient(135deg, rgba(240, 185, 11, 0.08) 0%, #0B0E11 100%)'
                       : '#0B0E11',
-                    border: `1px solid ${isLeader ? 'rgba(240, 185, 11, 0.4)' : '#2B3139'}`,
+                    border: `1px solid ${
+                      isLeader ? 'rgba(240, 185, 11, 0.4)' : '#2B3139'
+                    }`,
                     boxShadow: isLeader
                       ? '0 3px 15px rgba(240, 185, 11, 0.12), 0 0 0 1px rgba(240, 185, 11, 0.15)'
                       : '0 1px 4px rgba(0, 0, 0, 0.3)',
@@ -266,13 +274,14 @@ export function CompetitionPage() {
                       <div
                         className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
                         style={{
-                          background: index === 0
-                            ? 'linear-gradient(135deg, #F0B90B 0%, #FCD535 100%)'
-                            : index === 1
+                          background:
+                            index === 0
+                              ? 'linear-gradient(135deg, #F0B90B 0%, #FCD535 100%)'
+                              : index === 1
                               ? 'linear-gradient(135deg, #C0C0C0 0%, #E8E8E8 100%)'
                               : index === 2
-                                ? 'linear-gradient(135deg, #CD7F32 0%, #E8A64C 100%)'
-                                : '#2B3139',
+                              ? 'linear-gradient(135deg, #CD7F32 0%, #E8A64C 100%)'
+                              : '#2B3139',
                           color: index < 3 ? '#000' : '#848E9C',
                         }}
                       >
@@ -280,7 +289,10 @@ export function CompetitionPage() {
                       </div>
                       {/* Punk Avatar */}
                       <PunkAvatar
-                        seed={getTraderAvatar(trader.trader_id, trader.trader_name)}
+                        seed={getTraderAvatar(
+                          trader.trader_id,
+                          trader.trader_name
+                        )}
                         size={36}
                         className="rounded-lg"
                       />
@@ -295,8 +307,19 @@ export function CompetitionPage() {
                           className="text-xs mono font-semibold"
                           style={{ color: traderColor }}
                         >
-                          {trader.ai_model.toUpperCase()} +{' '}
-                          {trader.exchange.toUpperCase()}
+                          {(() => {
+                            const model = allModels?.find(
+                              (m) => m.id === trader.ai_model
+                            )
+                            if (model) {
+                              const parts = model.name.split('_')
+                              return parts.length > 1
+                                ? parts[parts.length - 1]
+                                : model.name
+                            }
+                            return trader.ai_model.toUpperCase()
+                          })()}{' '}
+                          + {trader.exchange.toUpperCase()}
                         </div>
                       </div>
                     </div>
@@ -437,7 +460,10 @@ export function CompetitionPage() {
                     {/* Avatar */}
                     <div className="flex justify-center mb-3">
                       <PunkAvatar
-                        seed={getTraderAvatar(trader.trader_id, trader.trader_name)}
+                        seed={getTraderAvatar(
+                          trader.trader_id,
+                          trader.trader_name
+                        )}
                         size={56}
                         className="rounded-xl"
                       />
@@ -459,7 +485,9 @@ export function CompetitionPage() {
                     >
                       {trader.total_pnl_pct != null &&
                       !isNaN(trader.total_pnl_pct)
-                        ? `${trader.total_pnl_pct >= 0 ? '+' : ''}${trader.total_pnl_pct.toFixed(2)}%`
+                        ? `${
+                            trader.total_pnl_pct >= 0 ? '+' : ''
+                          }${trader.total_pnl_pct.toFixed(2)}%`
                         : '—'}
                     </div>
                     {hasValidData && isWinning && gap > 0 && (
