@@ -20,6 +20,7 @@ import type {
   BacktestTradeEvent,
   BacktestMetrics,
   BacktestRunMetadata,
+  BacktestKlinesResponse,
   Strategy,
   StrategyConfig,
   DebateSession,
@@ -409,10 +410,12 @@ export const api = {
   },
 
   // 批量获取多个交易员的历史数据（无需认证）
-  async getEquityHistoryBatch(traderIds: string[]): Promise<any> {
+  // hours: 可选参数，获取最近N小时的数据（0表示全部数据）
+  // 常用值: 24=1天, 72=3天, 168=7天, 720=30天, 0=全部
+  async getEquityHistoryBatch(traderIds: string[], hours?: number): Promise<any> {
     const result = await httpClient.post<any>(
       `${API_BASE}/equity-history-batch`,
-      { trader_ids: traderIds }
+      { trader_ids: traderIds, hours: hours || 0 }
     )
     if (!result.success) throw new Error('获取批量历史数据失败')
     return result.data!
@@ -576,6 +579,19 @@ export const api = {
       headers: getAuthHeaders(),
     })
     return handleJSONResponse<BacktestMetrics>(res)
+  },
+
+  async getBacktestKlines(
+    runId: string,
+    symbol: string,
+    timeframe?: string
+  ): Promise<BacktestKlinesResponse> {
+    const query = new URLSearchParams({ run_id: runId, symbol })
+    if (timeframe) query.set('timeframe', timeframe)
+    const res = await fetch(`${API_BASE}/backtest/klines?${query}`, {
+      headers: getAuthHeaders(),
+    })
+    return handleJSONResponse<BacktestKlinesResponse>(res)
   },
 
   async getBacktestTrace(
