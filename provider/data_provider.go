@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"nofx/security"
+	"sort"
 	"strings"
 	"time"
 )
@@ -172,14 +173,10 @@ func GetTopRatedCoins(limit int) ([]string, error) {
 		return nil, fmt.Errorf("no available coins")
 	}
 
-	// Sort by Score descending (bubble sort)
-	for i := 0; i < len(availableCoins); i++ {
-		for j := i + 1; j < len(availableCoins); j++ {
-			if availableCoins[i].Score < availableCoins[j].Score {
-				availableCoins[i], availableCoins[j] = availableCoins[j], availableCoins[i]
-			}
-		}
-	}
+	// Sort by Score descending
+	sort.Slice(availableCoins, func(i, j int) bool {
+		return availableCoins[i].Score > availableCoins[j].Score
+	})
 
 	// Take top N
 	maxCount := limit
