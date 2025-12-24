@@ -9,10 +9,13 @@ import (
 )
 
 func TestNetPositions(t *testing.T) {
-	client := NewCoinankClient(coinank_enum.MainUrl, TestApikey)
+	client := NewCoinankClient(coinank_enum.MainUrl, requireTestApikey(t))
 	resp, err := client.NetPositions(context.TODO(), coinank_enum.Binance, "BTCUSDT", coinank_enum.Hour1, time.Now().UnixMilli(), 10)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(resp) == 0 {
+		t.Fatalf("empty response")
 	}
 	if resp[0].Begin <= 0 {
 		t.Errorf("begin timestamp error")
