@@ -533,6 +533,12 @@ export interface RiskControlConfig {
   min_position_size: number // Min position size in USDT (CODE ENFORCED)
   min_risk_reward_ratio: number // Min take_profit / stop_loss ratio (AI guided)
   min_confidence: number // Min AI confidence to open position (AI guided)
+
+  // Frequency & Cost Controls (CODE ENFORCED when configured)
+  min_hold_minutes?: number // 0 = disabled
+  cooldown_after_close_minutes?: number // 0 = disabled
+  min_tp_cost_multiplier?: number // 0 = disabled
+  min_stop_loss_distance_pct?: number // 0 = disabled, percent value (e.g. 0.25 = 0.25%)
 }
 
 // Debate Arena Types

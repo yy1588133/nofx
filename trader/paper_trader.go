@@ -6,6 +6,7 @@ import (
 	"nofx/logger"
 	"nofx/market"
 	"nofx/store"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -18,8 +19,8 @@ type PaperTrader struct {
 	traderID      string  // 交易员ID - 隔离键
 	exchangeID    string  // Paper exchange UUID
 	accountID     string  // Paper account ID
-	slippageRate  float64 // 滑点率 (默认 0.0005 = 0.05%)
-	feeRate       float64 // 手续费率 (默认 0.0004 = 0.04%)
+	slippageRate  float64 // 滑点率 (默认 0.0001 = 0.01%)
+	feeRate       float64 // 手续费率 (默认 0.0005 = 0.05%)
 	isCrossMargin bool
 }
 
@@ -44,8 +45,8 @@ func NewPaperTrader(userID, traderID, exchangeID string, initialBalance float64,
 			ExchangeID:     exchangeID,
 			InitialBalance: initialBalance,
 			CurrentBalance: initialBalance,
-			SlippageRate:   0.0005,
-			FeeRate:        0.0004,
+			SlippageRate:   0.0001,
+			FeeRate:        0.0005,
 		}
 		if err := st.PaperAccount().Create(account); err != nil {
 			return nil, fmt.Errorf("failed to create paper account: %w", err)
@@ -54,6 +55,17 @@ func NewPaperTrader(userID, traderID, exchangeID string, initialBalance float64,
 		// 账户已存在，检查 initialBalance 是否不匹配
 		if initialBalance != account.InitialBalance {
 			logger.Warnf("⚠️ [Paper] Account already exists with initial balance %.2f, requested %.2f. Use Reset API to update.", account.InitialBalance, initialBalance)
+		}
+
+		// Migrate old default rates to new defaults (only if still using the old defaults)
+		if account.SlippageRate == 0.0005 && account.FeeRate == 0.0004 {
+			account.SlippageRate = 0.0001
+			account.FeeRate = 0.0005
+			if err := st.PaperAccount().Update(account); err != nil {
+				logger.Warnf("⚠️ [Paper] Failed to migrate slippage/fee rates: %v", err)
+			} else {
+				logger.Infof("🛠️ [Paper] Migrated slippage/fee rates to defaults: slippage=%.4f, fee=%.4f", account.SlippageRate, account.FeeRate)
+			}
 		}
 	}
 
@@ -249,15 +261,7 @@ func (t *PaperTrader) openPosition(symbol, side string, quantity float64, levera
 		return nil, fmt.Errorf("failed to get market price: %w", err)
 	}
 
-	// 2. 应用滑点
-	execPrice := t.applySlippage(md.CurrentPrice, side, true)
-
-	// 3. 计算保证金和手续费
-	notional := execPrice * quantity
-	margin := notional / float64(leverage)
-	fee := notional * t.feeRate
-
-	// 4. 预先检查账户余额（在事务外）
+	// 2. 获取账户（在事务外）
 	account, err := t.store.PaperAccount().GetByID(t.accountID)
 	if err != nil {
 		return nil, err
@@ -265,7 +269,16 @@ func (t *PaperTrader) openPosition(symbol, side string, quantity float64, levera
 	if account == nil {
 		return nil, fmt.Errorf("paper account not found: %s", t.accountID)
 	}
+	// Refresh rates from account (allows runtime updates)
+	t.refreshRates(account)
 
+	// 3. 应用滑点
+	execPrice := t.applySlippage(md.CurrentPrice, side, true)
+
+	// 4. 计算保证金和手续费
+	notional := execPrice * quantity
+	margin := notional / float64(leverage)
+	fee := notional * t.feeRate
 	if margin+fee > account.CurrentBalance {
 		return nil, fmt.Errorf("insufficient balance: need %.2f, available %.2f", margin+fee, account.CurrentBalance)
 	}
@@ -383,6 +396,17 @@ func (t *PaperTrader) closePosition(symbol, side string, quantity float64) (map[
 		return nil, err
 	}
 
+	// 3. 获取账户（在事务外）
+	account, err := t.store.PaperAccount().GetByID(t.accountID)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil {
+		return nil, fmt.Errorf("paper account not found: %s", t.accountID)
+	}
+	// Refresh rates from account (allows runtime updates)
+	t.refreshRates(account)
+
 	execPrice := t.applySlippage(md.CurrentPrice, side, false)
 	notional := execPrice * quantity
 	fee := notional * t.feeRate
@@ -398,15 +422,6 @@ func (t *PaperTrader) closePosition(symbol, side string, quantity float64) (map[
 
 	// 4. 释放保证金
 	marginReleased := pos.MarginUsed * (quantity / pos.Quantity)
-
-	// 5. 获取账户（在事务外）
-	account, err := t.store.PaperAccount().GetByID(t.accountID)
-	if err != nil {
-		return nil, err
-	}
-	if account == nil {
-		return nil, fmt.Errorf("paper account not found: %s", t.accountID)
-	}
 
 	// 6. 准备订单对象
 	orderSide := "SELL"
@@ -560,10 +575,27 @@ func (t *PaperTrader) FormatQuantity(symbol string, quantity float64) (string, e
 
 // GetOrderStatus 获取订单状态
 func (t *PaperTrader) GetOrderStatus(symbol string, orderID string) (map[string]interface{}, error) {
-	// Paper orders 都是立即成交
+	id, err := strconv.ParseInt(orderID, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid paper order id: %s", orderID)
+	}
+
+	order, err := t.store.PaperAccount().GetOrder(t.accountID, id)
+	if err != nil {
+		return nil, err
+	}
+	if order == nil {
+		return nil, fmt.Errorf("paper order not found: id=%d", id)
+	}
+
 	return map[string]interface{}{
-		"orderId": orderID,
-		"status":  "FILLED",
+		"orderId":      orderID,
+		"status":       order.Status,
+		"avgPrice":     order.AvgPrice,
+		"executedQty":  order.Quantity,
+		"commission":   order.Fee,
+		"realizedPnl":  order.RealizedPnL,
+		"positionSide": strings.ToUpper(order.PositionSide),
 	}, nil
 }
 
@@ -585,7 +617,7 @@ func (t *PaperTrader) GetClosedPnL(startTime time.Time, limit int) ([]ClosedPnLR
 			records = append(records, ClosedPnLRecord{
 				Symbol:      order.Symbol,
 				Side:        strings.ToLower(order.PositionSide),
-				EntryPrice:  0,           // Paper Trading: 平仓记录不包含入场价（设计限制）
+				EntryPrice:  0, // Paper Trading: 平仓记录不包含入场价（设计限制）
 				ExitPrice:   order.AvgPrice,
 				Quantity:    order.Quantity,
 				RealizedPnL: order.RealizedPnL,
@@ -619,6 +651,26 @@ func determineCloseType(orderType string) string {
 // =============================================================================
 // 辅助方法
 // =============================================================================
+
+func (t *PaperTrader) FeeRate() float64 {
+	return t.feeRate
+}
+
+func (t *PaperTrader) SlippageRate() float64 {
+	return t.slippageRate
+}
+
+func (t *PaperTrader) refreshRates(account *store.PaperAccount) {
+	if account == nil {
+		return
+	}
+	if account.SlippageRate > 0 {
+		t.slippageRate = account.SlippageRate
+	}
+	if account.FeeRate > 0 {
+		t.feeRate = account.FeeRate
+	}
+}
 
 // applySlippage 应用滑点
 // 滑点模拟真实市场中的成交价偏差，总是对交易者不利：
@@ -676,10 +728,23 @@ func (t *PaperTrader) calculateUnrealizedPnL(pos *store.PaperPosition) float64 {
 //   - error: 平仓失败时返回错误，成功返回 nil
 func (t *PaperTrader) executeAutoClose(pos *store.PaperPosition, execPrice float64, orderType string) error {
 	quantity := pos.Quantity
+
+	// 1. 获取账户（在事务外）
+	account, err := t.store.PaperAccount().GetByID(t.accountID)
+	if err != nil || account == nil {
+		logger.Errorf("❌ [Paper] Failed to get account for auto-close: %v", err)
+		return fmt.Errorf("failed to get account for auto-close: %w", err)
+	}
+	// Refresh rates from account (allows runtime updates)
+	t.refreshRates(account)
+
+	// 2. 应用滑点（自动平仓也应计入滑点）
+	execPrice = t.applySlippage(execPrice, pos.Side, false)
+
 	notional := execPrice * quantity
 	fee := notional * t.feeRate
 
-	// 1. 计算已实现盈亏
+	// 3. 计算已实现盈亏
 	var realizedPnL float64
 	if pos.Side == "LONG" {
 		realizedPnL = (execPrice - pos.EntryPrice) * quantity
@@ -690,13 +755,6 @@ func (t *PaperTrader) executeAutoClose(pos *store.PaperPosition, execPrice float
 
 	// 2. 释放保证金
 	marginReleased := pos.MarginUsed
-
-	// 3. 获取账户（在事务外）
-	account, err := t.store.PaperAccount().GetByID(t.accountID)
-	if err != nil || account == nil {
-		logger.Errorf("❌ [Paper] Failed to get account for auto-close: %v", err)
-		return fmt.Errorf("failed to get account for auto-close: %w", err)
-	}
 
 	// 4. 准备订单对象
 	orderSide := "SELL"

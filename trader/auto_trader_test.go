@@ -444,6 +444,13 @@ func (s *AutoTraderTestSuite) TestExecuteOpenPosition() {
 			}
 
 			decision := &decision.Decision{Action: tt.action, Symbol: "BTCUSDT", PositionSizeUSD: 1000.0, Leverage: 10}
+			if tt.action == "open_long" {
+				decision.StopLoss = 49500.0
+				decision.TakeProfit = 51500.0
+			} else if tt.action == "open_short" {
+				decision.StopLoss = 50500.0
+				decision.TakeProfit = 48500.0
+			}
 			actionRecord := &store.DecisionAction{Action: tt.action, Symbol: "BTCUSDT"}
 
 			err := tt.executeFn(decision, actionRecord)
@@ -532,6 +539,8 @@ func (s *AutoTraderTestSuite) TestExecuteDecisionWithRecord() {
 			Symbol:          "BTCUSDT",
 			PositionSizeUSD: 1000.0,
 			Leverage:        10,
+			StopLoss:        49500.0,
+			TakeProfit:      51500.0,
 		}
 		actionRecord := &store.DecisionAction{}
 

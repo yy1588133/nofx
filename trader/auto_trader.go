@@ -2,6 +2,7 @@ package trader
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"nofx/decision"
@@ -35,13 +36,13 @@ type AutoTraderConfig struct {
 	BybitSecretKey string
 
 	// OKX API configuration
-	OKXAPIKey    string
-	OKXSecretKey string
+	OKXAPIKey     string
+	OKXSecretKey  string
 	OKXPassphrase string
 
 	// Bitget API configuration
-	BitgetAPIKey    string
-	BitgetSecretKey string
+	BitgetAPIKey     string
+	BitgetSecretKey  string
 	BitgetPassphrase string
 
 	// Hyperliquid configuration
@@ -549,9 +550,18 @@ func (at *AutoTrader) runCycle() error {
 		}
 
 		if err := at.executeDecisionWithRecord(&d, &actionRecord); err != nil {
-			logger.Infof("❌ Failed to execute decision (%s %s): %v", d.Symbol, d.Action, err)
-			actionRecord.Error = err.Error()
-			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("❌ %s %s failed: %v", d.Symbol, d.Action, err))
+			var rcErr *RiskControlRejectionError
+			if errors.As(err, &rcErr) {
+				logger.Infof("⛔️ Decision rejected by risk control (%s %s): %v", d.Symbol, d.Action, err)
+				actionRecord.ErrorType = "risk_rejected"
+				actionRecord.Error = rcErr.Error()
+				record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("⛔️ %s %s rejected: %s", d.Symbol, d.Action, rcErr.Error()))
+			} else {
+				logger.Infof("❌ Failed to execute decision (%s %s): %v", d.Symbol, d.Action, err)
+				actionRecord.ErrorType = "execution_failed"
+				actionRecord.Error = err.Error()
+				record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("❌ %s %s failed: %v", d.Symbol, d.Action, err))
+			}
 		} else {
 			actionRecord.Success = true
 			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("✓ %s %s succeeded", d.Symbol, d.Action))
@@ -933,6 +943,10 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 		// Continue execution, doesn't affect trading
 	}
 
+	if err := at.enforceOpenDecisionConstraints(decision, "LONG", marketData.CurrentPrice, positions, equity); err != nil {
+		return err
+	}
+
 	// Open position
 	order, err := at.trader.OpenLong(decision.Symbol, quantity, decision.Leverage)
 	if err != nil {
@@ -957,7 +971,7 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 	if err := at.trader.SetStopLoss(decision.Symbol, "LONG", quantity, decision.StopLoss); err != nil {
 		logger.Errorf("❌ Critical: Failed to set stop loss for %s: %v", decision.Symbol, err)
 		logger.Infof("  🚨 Closing position immediately due to stop loss setup failure")
-		
+
 		// Immediately close position - cannot have open position without stop loss protection
 		if _, closeErr := at.trader.CloseLong(decision.Symbol, 0); closeErr != nil {
 			logger.Errorf("❌ Failed to close position after stop loss failure: %v", closeErr)
@@ -966,7 +980,7 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *decision.Decision, act
 		}
 		return fmt.Errorf("critical: stop loss setup failed, position was closed for safety: %w", err)
 	}
-	
+
 	// Take profit is less critical - warn but don't close position
 	if err := at.trader.SetTakeProfit(decision.Symbol, "LONG", quantity, decision.TakeProfit); err != nil {
 		logger.Warnf("⚠️ Failed to set take profit for %s (position remains open with stop loss): %v", decision.Symbol, err)
@@ -1062,6 +1076,10 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 		// Continue execution, doesn't affect trading
 	}
 
+	if err := at.enforceOpenDecisionConstraints(decision, "SHORT", marketData.CurrentPrice, positions, equity); err != nil {
+		return err
+	}
+
 	// Open position
 	order, err := at.trader.OpenShort(decision.Symbol, quantity, decision.Leverage)
 	if err != nil {
@@ -1086,7 +1104,7 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 	if err := at.trader.SetStopLoss(decision.Symbol, "SHORT", quantity, decision.StopLoss); err != nil {
 		logger.Errorf("❌ Critical: Failed to set stop loss for %s: %v", decision.Symbol, err)
 		logger.Infof("  🚨 Closing position immediately due to stop loss setup failure")
-		
+
 		// Immediately close position - cannot have open position without stop loss protection
 		if _, closeErr := at.trader.CloseShort(decision.Symbol, 0); closeErr != nil {
 			logger.Errorf("❌ Failed to close position after stop loss failure: %v", closeErr)
@@ -1095,7 +1113,7 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *decision.Decision, ac
 		}
 		return fmt.Errorf("critical: stop loss setup failed, position was closed for safety: %w", err)
 	}
-	
+
 	// Take profit is less critical - warn but don't close position
 	if err := at.trader.SetTakeProfit(decision.Symbol, "SHORT", quantity, decision.TakeProfit); err != nil {
 		logger.Warnf("⚠️ Failed to set take profit for %s (position remains open with stop loss): %v", decision.Symbol, err)
@@ -1132,6 +1150,10 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *decision.Decision, ac
 				break
 			}
 		}
+	}
+
+	if err := at.enforceMinHoldBeforeClose(decision.Symbol, "LONG"); err != nil {
+		return err
 	}
 
 	// Close position
@@ -1179,6 +1201,10 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *decision.Decision, a
 				break
 			}
 		}
+	}
+
+	if err := at.enforceMinHoldBeforeClose(decision.Symbol, "SHORT"); err != nil {
+		return err
 	}
 
 	// Close position
@@ -1703,8 +1729,8 @@ func (at *AutoTrader) recordAndConfirmOrder(orderResult map[string]interface{}, 
 	}
 
 	// Poll order status to get actual fill price, quantity and fee
-	var actualPrice = price       // fallback to market price
-	var actualQty = quantity      // fallback to requested quantity
+	var actualPrice = price  // fallback to market price
+	var actualQty = quantity // fallback to requested quantity
 	var fee float64
 
 	// Wait for order to be filled and get actual fill data
@@ -1802,10 +1828,10 @@ func (at *AutoTrader) recordPositionChange(orderID, symbol, side, action string,
 		// Update position record
 		err = at.store.Position().ClosePosition(
 			openPos.ID,
-			price,       // exitPrice
-			orderID,     // exitOrderID
+			price,   // exitPrice
+			orderID, // exitOrderID
 			realizedPnL,
-			fee,         // fee from exchange API
+			fee, // fee from exchange API
 			"ai_decision",
 		)
 		if err != nil {
@@ -1820,6 +1846,18 @@ func (at *AutoTrader) recordPositionChange(orderID, symbol, side, action string,
 // ============================================================================
 // Risk Control Helpers
 // ============================================================================
+
+type RiskControlRejectionError struct {
+	Reason string
+}
+
+func (e *RiskControlRejectionError) Error() string {
+	return e.Reason
+}
+
+func riskRejectf(format string, args ...interface{}) error {
+	return &RiskControlRejectionError{Reason: fmt.Sprintf(format, args...)}
+}
 
 // isBTCETH checks if a symbol is BTC or ETH
 func isBTCETH(symbol string) bool {
@@ -1878,7 +1916,7 @@ func (at *AutoTrader) enforceMinPositionSize(positionSizeUSD float64) error {
 	}
 
 	if positionSizeUSD < minSize {
-		return fmt.Errorf("❌ [RISK CONTROL] Position %.2f USDT below minimum (%.2f USDT)", positionSizeUSD, minSize)
+		return riskRejectf("❌ [RISK CONTROL] Position %.2f USDT below minimum (%.2f USDT)", positionSizeUSD, minSize)
 	}
 	return nil
 }
@@ -1895,8 +1933,246 @@ func (at *AutoTrader) enforceMaxPositions(currentPositionCount int) error {
 	}
 
 	if currentPositionCount >= maxPositions {
-		return fmt.Errorf("❌ [RISK CONTROL] Already at max positions (%d/%d)", currentPositionCount, maxPositions)
+		return riskRejectf("❌ [RISK CONTROL] Already at max positions (%d/%d)", currentPositionCount, maxPositions)
 	}
 	return nil
 }
 
+func (at *AutoTrader) getPaperRates() (feeRate float64, slippageRate float64, ok bool) {
+	paperTrader, ok := at.trader.(*PaperTrader)
+	if !ok || paperTrader == nil {
+		return 0, 0, false
+	}
+	return paperTrader.FeeRate(), paperTrader.SlippageRate(), true
+}
+
+func estimateExecutionPriceWithSlippage(price float64, positionSide string, isOpen bool, slippageRate float64) float64 {
+	adjust := 1.0
+	positionSide = strings.ToUpper(positionSide)
+	if positionSide == "LONG" {
+		if isOpen {
+			adjust += slippageRate
+		} else {
+			adjust -= slippageRate
+		}
+	} else {
+		if isOpen {
+			adjust -= slippageRate
+		} else {
+			adjust += slippageRate
+		}
+	}
+	return price * adjust
+}
+
+func floatFromAny(v interface{}) float64 {
+	switch val := v.(type) {
+	case float64:
+		return val
+	case int:
+		return float64(val)
+	case int64:
+		return float64(val)
+	case string:
+		var f float64
+		fmt.Sscanf(val, "%f", &f)
+		return f
+	}
+	return 0
+}
+
+func getFloat(m map[string]interface{}, key string) float64 {
+	if v, ok := m[key]; ok {
+		return floatFromAny(v)
+	}
+	return 0
+}
+
+func estimateMarginUsedFromPositions(positions []map[string]interface{}) float64 {
+	total := 0.0
+	for _, pos := range positions {
+		markPrice := getFloat(pos, "markPrice")
+		qty := getFloat(pos, "positionAmt")
+		if qty < 0 {
+			qty = -qty
+		}
+		lev := getFloat(pos, "leverage")
+		if lev <= 0 {
+			lev = 1
+		}
+		if markPrice > 0 && qty > 0 {
+			total += (qty * markPrice) / lev
+		}
+	}
+	return total
+}
+
+func (at *AutoTrader) enforceCooldownAfterClose(symbol string) error {
+	if at.config.StrategyConfig == nil {
+		return nil
+	}
+
+	cooldownMins := at.config.StrategyConfig.RiskControl.CooldownAfterCloseMinutes
+	if cooldownMins <= 0 || at.store == nil {
+		return nil
+	}
+
+	lastExit, err := at.store.Position().GetLastClosedPositionTimeForSymbol(at.id, symbol)
+	if err != nil {
+		return fmt.Errorf("❌ [RISK CONTROL] Failed to check cooldown: %w", err)
+	}
+	if lastExit.IsZero() {
+		return nil
+	}
+
+	cooldown := time.Duration(cooldownMins) * time.Minute
+	elapsed := time.Since(lastExit)
+	if elapsed < cooldown {
+		remaining := cooldown - elapsed
+		return riskRejectf("❌ [RISK CONTROL] Cooldown active for %s, remaining %.0f minutes", symbol, remaining.Minutes())
+	}
+	return nil
+}
+
+func (at *AutoTrader) enforceMinHoldBeforeClose(symbol string, side string) error {
+	if at.config.StrategyConfig == nil {
+		return nil
+	}
+
+	minHoldMins := at.config.StrategyConfig.RiskControl.MinHoldMinutes
+	if minHoldMins <= 0 || at.store == nil {
+		return nil
+	}
+
+	openPos, err := at.store.Position().GetOpenPositionBySymbol(at.id, symbol, strings.ToUpper(side))
+	if err != nil || openPos == nil || openPos.EntryTime.IsZero() {
+		return nil
+	}
+
+	minHold := time.Duration(minHoldMins) * time.Minute
+	elapsed := time.Since(openPos.EntryTime)
+	if elapsed < minHold {
+		remaining := minHold - elapsed
+		return riskRejectf(
+			"❌ [RISK CONTROL] Min hold %d minutes not reached for %s %s, remaining %.0f minutes",
+			minHoldMins,
+			symbol,
+			strings.ToUpper(side),
+			remaining.Minutes(),
+		)
+	}
+	return nil
+}
+
+func (at *AutoTrader) enforceOpenDecisionConstraints(d *decision.Decision, positionSide string, currentPrice float64, positions []map[string]interface{}, equity float64) error {
+	if at.config.StrategyConfig == nil {
+		return nil
+	}
+	rc := at.config.StrategyConfig.RiskControl
+
+	if rc.MinConfidence > 0 && d.Confidence > 0 && d.Confidence < rc.MinConfidence {
+		return riskRejectf("❌ [RISK CONTROL] Confidence %d below minimum %d", d.Confidence, rc.MinConfidence)
+	}
+
+	if err := at.enforceCooldownAfterClose(d.Symbol); err != nil {
+		return err
+	}
+
+	if d.Leverage <= 0 {
+		return riskRejectf("❌ [RISK CONTROL] Invalid leverage: %d", d.Leverage)
+	}
+	if d.PositionSizeUSD <= 0 {
+		return riskRejectf("❌ [RISK CONTROL] Invalid position_size_usd: %.2f", d.PositionSizeUSD)
+	}
+	if d.StopLoss <= 0 || d.TakeProfit <= 0 {
+		return riskRejectf("❌ [RISK CONTROL] stop_loss/take_profit must be set")
+	}
+
+	expectedEntry := currentPrice
+	feeRate, slippageRate, isPaper := at.getPaperRates()
+	if isPaper {
+		expectedEntry = estimateExecutionPriceWithSlippage(currentPrice, positionSide, true, slippageRate)
+	}
+	if expectedEntry <= 0 {
+		return riskRejectf("❌ [RISK CONTROL] Invalid entry price: %.6f", expectedEntry)
+	}
+
+	positionSide = strings.ToUpper(positionSide)
+	var riskFrac, rewardFrac float64
+	if positionSide == "LONG" {
+		riskFrac = (expectedEntry - d.StopLoss) / expectedEntry
+		rewardFrac = (d.TakeProfit - expectedEntry) / expectedEntry
+	} else {
+		riskFrac = (d.StopLoss - expectedEntry) / expectedEntry
+		rewardFrac = (expectedEntry - d.TakeProfit) / expectedEntry
+	}
+
+	if riskFrac <= 0 {
+		return riskRejectf(
+			"❌ [RISK CONTROL] Invalid stop_loss for %s entry=%.6f stop=%.6f",
+			positionSide,
+			expectedEntry,
+			d.StopLoss,
+		)
+	}
+	if rewardFrac <= 0 {
+		return riskRejectf(
+			"❌ [RISK CONTROL] Invalid take_profit for %s entry=%.6f tp=%.6f",
+			positionSide,
+			expectedEntry,
+			d.TakeProfit,
+		)
+	}
+
+	if rc.MinStopLossDistancePct > 0 {
+		minRiskFrac := rc.MinStopLossDistancePct / 100.0
+		if riskFrac < minRiskFrac {
+			return riskRejectf(
+				"❌ [RISK CONTROL] Stop loss too tight: %.2f%% < %.2f%%",
+				riskFrac*100,
+				rc.MinStopLossDistancePct,
+			)
+		}
+	}
+
+	if rc.MinRiskRewardRatio > 0 {
+		rr := rewardFrac / riskFrac
+		if rr < rc.MinRiskRewardRatio {
+			return riskRejectf(
+				"❌ [RISK CONTROL] Risk-reward %.2f below minimum %.2f",
+				rr,
+				rc.MinRiskRewardRatio,
+			)
+		}
+	}
+
+	if rc.MinTPCostMultiplier > 0 && isPaper {
+		roundTripCost := 2 * (feeRate + slippageRate)
+		requiredReward := roundTripCost * rc.MinTPCostMultiplier
+		if rewardFrac < requiredReward {
+			return riskRejectf(
+				"❌ [RISK CONTROL] TP distance %.2f%% below required %.2f%% (cost %.2f%% × %.1fx)",
+				rewardFrac*100,
+				requiredReward*100,
+				roundTripCost*100,
+				rc.MinTPCostMultiplier,
+			)
+		}
+	}
+
+	if rc.MaxMarginUsage > 0 && equity > 0 {
+		currentMargin := estimateMarginUsedFromPositions(positions)
+		newMargin := d.PositionSizeUSD / float64(d.Leverage)
+		nextMargin := currentMargin + newMargin
+		usage := nextMargin / equity
+		if usage > rc.MaxMarginUsage {
+			return riskRejectf(
+				"❌ [RISK CONTROL] Margin usage would exceed: %.1f%% > %.1f%%",
+				usage*100,
+				rc.MaxMarginUsage*100,
+			)
+		}
+	}
+
+	return nil
+}

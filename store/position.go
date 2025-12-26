@@ -602,10 +602,10 @@ func (s *PositionStore) GetSymbolStats(traderID string, limit int) ([]SymbolStat
 
 // HoldingTimeStats holding duration analysis
 type HoldingTimeStats struct {
-	Range       string  `json:"range"`        // e.g., "<1h", "1-4h", "4-24h", ">24h"
-	TradeCount  int     `json:"trade_count"`
-	WinRate     float64 `json:"win_rate"`
-	AvgPnL      float64 `json:"avg_pnl"`
+	Range      string  `json:"range"` // e.g., "<1h", "1-4h", "4-24h", ">24h"
+	TradeCount int     `json:"trade_count"`
+	WinRate    float64 `json:"win_rate"`
+	AvgPnL     float64 `json:"avg_pnl"`
 }
 
 // GetHoldingTimeStats analyzes performance by holding duration
@@ -721,9 +721,9 @@ type HistorySummary struct {
 	RecentPnL     float64 `json:"recent_pnl"`
 
 	// Streak info
-	CurrentStreak     int    `json:"current_streak"`      // Positive = wins, negative = losses
-	MaxWinStreak      int    `json:"max_win_streak"`
-	MaxLoseStreak     int    `json:"max_lose_streak"`
+	CurrentStreak int `json:"current_streak"` // Positive = wins, negative = losses
+	MaxWinStreak  int `json:"max_win_streak"`
+	MaxLoseStreak int `json:"max_lose_streak"`
 }
 
 // GetHistorySummary generates comprehensive AI context summary
@@ -1048,6 +1048,27 @@ func (s *PositionStore) GetLastClosedPositionTime(traderID string) (time.Time, e
 	}
 
 	t, _ := time.Parse(time.RFC3339, exitTime.String)
+	return t, nil
+}
+
+func (s *PositionStore) GetLastClosedPositionTimeForSymbol(traderID, symbol string) (time.Time, error) {
+	var exitTime sql.NullString
+	err := s.db.QueryRow(`
+		SELECT exit_time FROM trader_positions
+		WHERE trader_id = ? AND symbol = ? AND status = 'CLOSED' AND exit_time IS NOT NULL
+		ORDER BY exit_time DESC LIMIT 1
+	`, traderID, symbol).Scan(&exitTime)
+	if err == sql.ErrNoRows || !exitTime.Valid {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to get last closed position time for symbol: %w", err)
+	}
+
+	t, parseErr := time.Parse(time.RFC3339, exitTime.String)
+	if parseErr != nil {
+		return time.Time{}, fmt.Errorf("failed to parse exit time: %w", parseErr)
+	}
 	return t, nil
 }
 

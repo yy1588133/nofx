@@ -119,7 +119,7 @@ type Context struct {
 	MultiTFMarket   map[string]map[string]*market.Data `json:"-"`
 	OITopDataMap    map[string]*OITopData              `json:"-"`
 	QuantDataMap    map[string]*QuantData              `json:"-"`
-	OIRankingData   *provider.OIRankingData                `json:"-"` // Market-wide OI ranking data
+	OIRankingData   *provider.OIRankingData            `json:"-"` // Market-wide OI ranking data
 	BTCETHLeverage  int                                `json:"-"`
 	AltcoinLeverage int                                `json:"-"`
 	Timeframes      []string                           `json:"-"`
@@ -740,7 +740,20 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString(fmt.Sprintf("- Position Value Limit (BTC/ETH): max %.0f USDT (= equity %.0f × %.1fx)\n",
 		accountEquity*btcEthPosValueRatio, accountEquity, btcEthPosValueRatio))
 	sb.WriteString(fmt.Sprintf("- Max Margin Usage: ≤%.0f%%\n", riskControl.MaxMarginUsage*100))
-	sb.WriteString(fmt.Sprintf("- Min Position Size: ≥%.0f USDT\n\n", riskControl.MinPositionSize))
+	sb.WriteString(fmt.Sprintf("- Min Position Size: ≥%.0f USDT\n", riskControl.MinPositionSize))
+	if riskControl.MinHoldMinutes > 0 {
+		sb.WriteString(fmt.Sprintf("- Min Hold Time: ≥%d minutes\n", riskControl.MinHoldMinutes))
+	}
+	if riskControl.CooldownAfterCloseMinutes > 0 {
+		sb.WriteString(fmt.Sprintf("- Cooldown After Close: ≥%d minutes\n", riskControl.CooldownAfterCloseMinutes))
+	}
+	if riskControl.MinStopLossDistancePct > 0 {
+		sb.WriteString(fmt.Sprintf("- Min Stop Loss Distance: ≥%.2f%%\n", riskControl.MinStopLossDistancePct))
+	}
+	if riskControl.MinTPCostMultiplier > 0 {
+		sb.WriteString(fmt.Sprintf("- Take Profit Distance: ≥%.1fx estimated round-trip cost\n", riskControl.MinTPCostMultiplier))
+	}
+	sb.WriteString("\n")
 
 	sb.WriteString("## AI GUIDED (Recommended, you should follow):\n")
 	sb.WriteString(fmt.Sprintf("- Trading Leverage: Altcoins max %dx | BTC/ETH max %dx\n",

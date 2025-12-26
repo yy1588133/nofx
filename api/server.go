@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -1619,7 +1620,8 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 
 // ResetPaperAccountRequest 重置 Paper 账户请求
 type ResetPaperAccountRequest struct {
-	ExchangeID string  `json:"exchange_id" binding:"required"`
+	TraderID   string  `json:"trader_id"`
+	ExchangeID string  `json:"exchange_id"`
 	NewBalance float64 `json:"new_balance" binding:"required,gt=0"`
 }
 
@@ -1781,11 +1783,85 @@ func (s *Server) handleResetPaperAccount(c *gin.Context) {
 
 	var req ResetPaperAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: exchange_id and new_balance are required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: new_balance is required, and either trader_id or exchange_id must be provided"})
+		return
+	}
+	if req.TraderID == "" && req.ExchangeID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Either trader_id or exchange_id is required"})
 		return
 	}
 
-	// 验证这是一个 paper exchange
+	// Prefer trader_id (unambiguous isolation key)
+	if req.TraderID != "" {
+		fullCfg, err := s.store.Trader().GetFullConfig(userID, req.TraderID)
+		if err != nil || fullCfg == nil || fullCfg.Trader == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Trader not found"})
+			return
+		}
+		traderConfig := fullCfg.Trader
+
+		// Validate this is a paper exchange
+		exchange, err := s.store.Exchange().GetByID(userID, traderConfig.ExchangeID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get exchange"})
+			return
+		}
+		if exchange == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Exchange not found"})
+			return
+		}
+		if exchange.ExchangeType != "paper" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Only paper trading accounts can be reset"})
+			return
+		}
+
+		if req.ExchangeID != "" && req.ExchangeID != traderConfig.ExchangeID {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "exchange_id does not match trader's exchange_id"})
+			return
+		}
+
+		// If the paper account doesn't exist yet, create it first
+		account, err := s.store.PaperAccount().GetByTraderID(req.TraderID)
+		if err != nil {
+			logger.Errorf("❌ Failed to get paper account: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get paper account"})
+			return
+		}
+		if account == nil {
+			newAccount := &store.PaperAccount{
+				ID:             fmt.Sprintf("paper_%s", req.TraderID),
+				UserID:         userID,
+				TraderID:       req.TraderID,
+				ExchangeID:     traderConfig.ExchangeID,
+				InitialBalance: req.NewBalance,
+				CurrentBalance: req.NewBalance,
+				SlippageRate:   0.0001,
+				FeeRate:        0.0005,
+			}
+			if err := s.store.PaperAccount().Create(newAccount); err != nil {
+				logger.Errorf("❌ Failed to create paper account: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create paper account"})
+				return
+			}
+		} else {
+			if err := s.store.PaperAccount().ResetByTraderID(userID, req.TraderID, req.NewBalance); err != nil {
+				logger.Errorf("❌ Failed to reset paper account: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to reset paper account: %v", err)})
+				return
+			}
+		}
+
+		logger.Infof("✅ Paper account reset: traderID=%s, exchangeID=%s, newBalance=%.2f", req.TraderID, traderConfig.ExchangeID, req.NewBalance)
+		c.JSON(http.StatusOK, gin.H{
+			"message":     "Paper account reset successfully",
+			"trader_id":   req.TraderID,
+			"exchange_id": traderConfig.ExchangeID,
+			"new_balance": req.NewBalance,
+		})
+		return
+	}
+
+	// Legacy exchange_id reset (may be ambiguous if multiple traders share the same paper exchange)
 	exchange, err := s.store.Exchange().GetByID(userID, req.ExchangeID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get exchange"})
@@ -1800,8 +1876,12 @@ func (s *Server) handleResetPaperAccount(c *gin.Context) {
 		return
 	}
 
-	// 调用 Reset 方法
 	if err := s.store.PaperAccount().Reset(userID, req.ExchangeID, req.NewBalance); err != nil {
+		var amb *store.AmbiguousPaperAccountError
+		if errors.As(err, &amb) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Ambiguous paper account: multiple traders share this paper exchange. Please reset by trader_id."})
+			return
+		}
 		logger.Errorf("❌ Failed to reset paper account: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to reset paper account: %v", err)})
 		return
@@ -1810,6 +1890,7 @@ func (s *Server) handleResetPaperAccount(c *gin.Context) {
 	logger.Infof("✅ Paper account reset: exchangeID=%s, newBalance=%.2f", req.ExchangeID, req.NewBalance)
 	c.JSON(http.StatusOK, gin.H{
 		"message":     "Paper account reset successfully",
+		"exchange_id": req.ExchangeID,
 		"new_balance": req.NewBalance,
 	})
 }
@@ -2556,7 +2637,7 @@ func (s *Server) Start() error {
 	logger.Infof("  • PUT  /api/models           - Update AI model config")
 	logger.Infof("  • GET  /api/exchanges        - Get exchange config")
 	logger.Infof("  • PUT  /api/exchanges        - Update exchange config")
-	logger.Infof("  • POST /api/paper-account/reset - Reset paper trading account balance")
+	logger.Infof("  • POST /api/paper-account/reset - Reset paper trading account balance (prefer trader_id)")
 	logger.Infof("  • GET  /api/status?trader_id=xxx     - Specified trader's system status")
 	logger.Infof("  • GET  /api/account?trader_id=xxx    - Specified trader's account info")
 	logger.Infof("  • GET  /api/positions?trader_id=xxx  - Specified trader's position list")

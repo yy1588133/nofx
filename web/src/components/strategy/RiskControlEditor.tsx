@@ -37,6 +37,27 @@ export function RiskControlEditor({
       minRiskRewardDesc: { zh: '开仓要求的最低盈亏比', en: 'Minimum profit ratio for opening' },
       maxMarginUsage: { zh: '最大保证金使用率（代码强制）', en: 'Max Margin Usage (CODE ENFORCED)' },
       maxMarginUsageDesc: { zh: '保证金使用率上限，由代码强制执行', en: 'Maximum margin utilization, enforced by code' },
+      frequencyCostControls: { zh: '频率与成本约束（代码强制）', en: 'Frequency & Cost Controls (CODE ENFORCED)' },
+      minHoldMinutes: { zh: '最短持仓时间（分钟）', en: 'Min Hold Time (minutes)' },
+      minHoldMinutesDesc: {
+        zh: 'AI 主动平仓前必须至少持仓该分钟数（0=关闭）',
+        en: 'Minimum holding time before AI can close (0=disabled)',
+      },
+      cooldownAfterCloseMinutes: { zh: '平仓冷却（分钟）', en: 'Cooldown After Close (minutes)' },
+      cooldownAfterCloseMinutesDesc: {
+        zh: '平仓后该分钟数内禁止同币种再次开仓（0=关闭）',
+        en: 'Block reopening the same symbol for N minutes (0=disabled)',
+      },
+      minTPCostMultiplier: { zh: '止盈距离/成本倍数', en: 'TP Distance / Cost Multiplier' },
+      minTPCostMultiplierDesc: {
+        zh: 'PAPER 模式下要求 TP 距离 ≥ round-trip 成本 × 倍数（0=关闭）',
+        en: 'In PAPER mode, require TP distance ≥ round-trip cost × multiplier (0=disabled)',
+      },
+      minStopLossDistancePct: { zh: '最小止损距离（%）', en: 'Min Stop Loss Distance (%)' },
+      minStopLossDistancePctDesc: {
+        zh: '开仓要求止损距离 ≥ 该百分比（0=关闭，例如 0.25=0.25%）',
+        en: 'Require SL distance ≥ this percent (0=disabled, e.g. 0.25=0.25%)',
+      },
       entryRequirements: { zh: '开仓要求', en: 'Entry Requirements' },
       minPositionSize: { zh: '最小开仓金额', en: 'Min Position Size' },
       minPositionSizeDesc: { zh: 'USDT 最小名义价值', en: 'Minimum notional value in USDT' },
@@ -308,6 +329,158 @@ export function RiskControlEditor({
               />
               <span className="w-12 text-center font-mono" style={{ color: '#0ECB81' }}>
                 {Math.round((config.max_margin_usage ?? 0.9) * 100)}%
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Frequency & Cost Controls */}
+      <div>
+        <div className="flex items-center gap-2 mb-4">
+          <Shield className="w-5 h-5" style={{ color: '#F0B90B' }} />
+          <h3 className="font-medium" style={{ color: '#EAECEF' }}>
+            {t('frequencyCostControls')}
+          </h3>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div
+            className="p-4 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('minHoldMinutes')}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {t('minHoldMinutesDesc')}
+            </p>
+            <div className="flex items-center">
+              <input
+                type="number"
+                value={config.min_hold_minutes ?? 0}
+                onChange={(e) =>
+                  updateField('min_hold_minutes', parseInt(e.target.value) || 0)
+                }
+                disabled={disabled}
+                min={0}
+                max={1440}
+                className="w-24 px-3 py-2 rounded"
+                style={{
+                  background: '#1E2329',
+                  border: '1px solid #2B3139',
+                  color: '#EAECEF',
+                }}
+              />
+              <span className="ml-2" style={{ color: '#848E9C' }}>
+                min
+              </span>
+            </div>
+          </div>
+
+          <div
+            className="p-4 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('cooldownAfterCloseMinutes')}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {t('cooldownAfterCloseMinutesDesc')}
+            </p>
+            <div className="flex items-center">
+              <input
+                type="number"
+                value={config.cooldown_after_close_minutes ?? 0}
+                onChange={(e) =>
+                  updateField(
+                    'cooldown_after_close_minutes',
+                    parseInt(e.target.value) || 0
+                  )
+                }
+                disabled={disabled}
+                min={0}
+                max={1440}
+                className="w-24 px-3 py-2 rounded"
+                style={{
+                  background: '#1E2329',
+                  border: '1px solid #2B3139',
+                  color: '#EAECEF',
+                }}
+              />
+              <span className="ml-2" style={{ color: '#848E9C' }}>
+                min
+              </span>
+            </div>
+          </div>
+
+          <div
+            className="p-4 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('minTPCostMultiplier')}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {t('minTPCostMultiplierDesc')}
+            </p>
+            <div className="flex items-center">
+              <input
+                type="number"
+                value={config.min_tp_cost_multiplier ?? 0}
+                onChange={(e) =>
+                  updateField('min_tp_cost_multiplier', parseFloat(e.target.value) || 0)
+                }
+                disabled={disabled}
+                min={0}
+                max={20}
+                step={0.5}
+                className="w-24 px-3 py-2 rounded"
+                style={{
+                  background: '#1E2329',
+                  border: '1px solid #2B3139',
+                  color: '#EAECEF',
+                }}
+              />
+              <span className="ml-2" style={{ color: '#848E9C' }}>
+                x
+              </span>
+            </div>
+          </div>
+
+          <div
+            className="p-4 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('minStopLossDistancePct')}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {t('minStopLossDistancePctDesc')}
+            </p>
+            <div className="flex items-center">
+              <input
+                type="number"
+                value={config.min_stop_loss_distance_pct ?? 0}
+                onChange={(e) =>
+                  updateField(
+                    'min_stop_loss_distance_pct',
+                    parseFloat(e.target.value) || 0
+                  )
+                }
+                disabled={disabled}
+                min={0}
+                max={10}
+                step={0.05}
+                className="w-24 px-3 py-2 rounded"
+                style={{
+                  background: '#1E2329',
+                  border: '1px solid #2B3139',
+                  color: '#EAECEF',
+                }}
+              />
+              <span className="ml-2" style={{ color: '#848E9C' }}>
+                %
               </span>
             </div>
           </div>

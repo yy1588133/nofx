@@ -28,9 +28,9 @@ type PaperAccount struct {
 // PaperPosition Paper 虚拟持仓
 type PaperPosition struct {
 	ID               int64     `json:"id"`
-	AccountID        string    `json:"account_id"`        // PaperAccount.ID
+	AccountID        string    `json:"account_id"` // PaperAccount.ID
 	Symbol           string    `json:"symbol"`
-	Side             string    `json:"side"`              // "LONG" or "SHORT"
+	Side             string    `json:"side"` // "LONG" or "SHORT"
 	Quantity         float64   `json:"quantity"`
 	EntryPrice       float64   `json:"entry_price"`
 	MarkPrice        float64   `json:"mark_price"`
@@ -65,6 +65,15 @@ type PaperOrder struct {
 // PaperAccountStore Paper 账户存储
 type PaperAccountStore struct {
 	db *sql.DB
+}
+
+type AmbiguousPaperAccountError struct {
+	ExchangeID string
+	Count      int
+}
+
+func (e *AmbiguousPaperAccountError) Error() string {
+	return fmt.Sprintf("ambiguous paper account: %d accounts found for exchange_id=%s", e.Count, e.ExchangeID)
 }
 
 // NewPaperAccountStore creates paper account storage instance
@@ -191,7 +200,7 @@ func (s *PaperAccountStore) migrateRemoveExchangeIdUnique() error {
 	`).Scan(&createSQL)
 
 	// If no UNIQUE constraint found (either as index or inline), skip migration
-	hasInlineUnique := err2 == nil && (contains(createSQL, "exchange_id TEXT NOT NULL UNIQUE") || 
+	hasInlineUnique := err2 == nil && (contains(createSQL, "exchange_id TEXT NOT NULL UNIQUE") ||
 		contains(createSQL, "exchange_id TEXT UNIQUE") ||
 		contains(createSQL, "UNIQUE") && contains(createSQL, "exchange_id"))
 	hasIndexUnique := err == nil && indexName != ""
@@ -303,10 +312,10 @@ func (s *PaperAccountStore) Create(account *PaperAccount) error {
 
 	// Set default values
 	if account.SlippageRate == 0 {
-		account.SlippageRate = 0.0005
+		account.SlippageRate = 0.0001
 	}
 	if account.FeeRate == 0 {
-		account.FeeRate = 0.0004
+		account.FeeRate = 0.0005
 	}
 	if account.InitialBalance == 0 {
 		account.InitialBalance = 10000
@@ -497,13 +506,25 @@ func (s *PaperAccountStore) UpdateTx(tx *sql.Tx, account *PaperAccount) error {
 func (s *PaperAccountStore) Reset(userID, exchangeID string, newBalance float64) error {
 	now := time.Now()
 
+	var count int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM paper_accounts WHERE user_id = ? AND exchange_id = ?`, userID, exchangeID).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to count paper accounts: %w", err)
+	}
+	if count == 0 {
+		return fmt.Errorf("paper account not found: exchangeID=%s", exchangeID)
+	}
+	if count > 1 {
+		return &AmbiguousPaperAccountError{ExchangeID: exchangeID, Count: count}
+	}
+
 	// Get account first
 	account, err := s.Get(userID, exchangeID)
 	if err != nil {
 		return err
 	}
 	if account == nil {
-		return fmt.Errorf("paper account not found: userID=%s, exchangeID=%s", userID, exchangeID)
+		return fmt.Errorf("paper account not found: exchangeID=%s", exchangeID)
 	}
 
 	// Start transaction
@@ -537,10 +558,70 @@ func (s *PaperAccountStore) Reset(userID, exchangeID string, newBalance float64)
 			total_margin_used = 0,
 			total_pnl = 0,
 			updated_at = ?
-		WHERE user_id = ? AND exchange_id = ?
+		WHERE id = ?
 	`,
 		newBalance, newBalance, now.Format("2006-01-02 15:04:05"),
-		userID, exchangeID,
+		account.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to reset paper account: %w", err)
+	}
+
+	// Commit transaction
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// ResetByTraderID resets paper account by trader_id (unambiguous isolation key)
+func (s *PaperAccountStore) ResetByTraderID(userID, traderID string, newBalance float64) error {
+	now := time.Now()
+
+	account, err := s.GetByTraderID(traderID)
+	if err != nil {
+		return err
+	}
+	if account == nil || account.UserID != userID {
+		return fmt.Errorf("paper account not found: traderID=%s", traderID)
+	}
+
+	// Start transaction
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// Delete all positions for this account
+	_, err = tx.Exec(`DELETE FROM paper_positions WHERE account_id = ?`, account.ID)
+	if err != nil {
+		return fmt.Errorf("failed to delete positions during reset: %w", err)
+	}
+
+	// Delete all orders for this account
+	_, err = tx.Exec(`DELETE FROM paper_orders WHERE account_id = ?`, account.ID)
+	if err != nil {
+		return fmt.Errorf("failed to delete orders during reset: %w", err)
+	}
+
+	// Reset account balance
+	_, err = tx.Exec(`
+		UPDATE paper_accounts SET
+			initial_balance = ?,
+			current_balance = ?,
+			total_margin_used = 0,
+			total_pnl = 0,
+			updated_at = ?
+		WHERE id = ?
+	`,
+		newBalance, newBalance, now.Format("2006-01-02 15:04:05"),
+		account.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to reset paper account: %w", err)
@@ -950,35 +1031,42 @@ func (s *PaperAccountStore) formatNullableTime(t *time.Time) interface{} {
 
 // DeleteByExchangeID deletes paper account and all related data by exchange ID
 func (s *PaperAccountStore) DeleteByExchangeID(exchangeID string) error {
-	// 首先获取账户 ID
-	var accountID string
-	err := s.db.QueryRow(`SELECT id FROM paper_accounts WHERE exchange_id = ?`, exchangeID).Scan(&accountID)
+	tx, err := s.db.Begin()
 	if err != nil {
-		if err == sql.ErrNoRows {
-			// 没有关联的 paper account，不需要清理
-			return nil
-		}
-		return fmt.Errorf("failed to find paper account: %w", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	defer tx.Rollback()
 
-	// 删除所有关联的持仓
-	_, err = s.db.Exec(`DELETE FROM paper_positions WHERE account_id = ?`, accountID)
-	if err != nil {
+	// Delete all related positions
+	if _, err := tx.Exec(`
+		DELETE FROM paper_positions
+		WHERE account_id IN (SELECT id FROM paper_accounts WHERE exchange_id = ?)
+	`, exchangeID); err != nil {
 		return fmt.Errorf("failed to delete paper positions: %w", err)
 	}
 
-	// 删除所有关联的订单
-	_, err = s.db.Exec(`DELETE FROM paper_orders WHERE account_id = ?`, accountID)
-	if err != nil {
+	// Delete all related orders
+	if _, err := tx.Exec(`
+		DELETE FROM paper_orders
+		WHERE account_id IN (SELECT id FROM paper_accounts WHERE exchange_id = ?)
+	`, exchangeID); err != nil {
 		return fmt.Errorf("failed to delete paper orders: %w", err)
 	}
 
-	// 删除账户本身
-	_, err = s.db.Exec(`DELETE FROM paper_accounts WHERE id = ?`, accountID)
+	// Delete accounts
+	result, err := tx.Exec(`DELETE FROM paper_accounts WHERE exchange_id = ?`, exchangeID)
 	if err != nil {
 		return fmt.Errorf("failed to delete paper account: %w", err)
 	}
-logger.Infof("🗑️ Deleted paper account and related data: exchangeID=%s, accountID=%s", exchangeID, accountID)
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected > 0 {
+		logger.Infof("🗑️ Deleted paper accounts and related data: exchangeID=%s, accounts=%d", exchangeID, rowsAffected)
+	}
 	return nil
 }
 

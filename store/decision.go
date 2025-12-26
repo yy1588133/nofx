@@ -69,6 +69,7 @@ type DecisionAction struct {
 	OrderID    int64     `json:"order_id"`
 	Timestamp  time.Time `json:"timestamp"`
 	Success    bool      `json:"success"`
+	ErrorType  string    `json:"error_type,omitempty"`
 	Error      string    `json:"error"`
 }
 
