@@ -25,6 +25,7 @@ type Store struct {
 	position     *PositionStore
 	strategy     *StrategyStore
 	equity       *EquityStore
+	order        *OrderStore
 	paperAccount *PaperAccountStore
 
 	// Encryption functions
@@ -154,6 +155,9 @@ func (s *Store) initTables() error {
 	if err := s.Equity().initTables(); err != nil {
 		return fmt.Errorf("failed to initialize equity tables: %w", err)
 	}
+	if err := s.Order().InitTables(); err != nil {
+		return fmt.Errorf("failed to initialize order tables: %w", err)
+	}
 	if err := s.PaperAccount().InitTables(); err != nil {
 		return fmt.Errorf("failed to initialize paper account tables: %w", err)
 	}
@@ -279,6 +283,16 @@ func (s *Store) Equity() *EquityStore {
 		s.equity = &EquityStore{db: s.db}
 	}
 	return s.equity
+}
+
+// Order gets order storage
+func (s *Store) Order() *OrderStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.order == nil {
+		s.order = NewOrderStore(s.db)
+	}
+	return s.order
 }
 
 // PaperAccount gets paper account storage

@@ -64,6 +64,7 @@ import { useLanguage } from '../contexts/LanguageContext'
 import { t } from '../i18n/translations'
 import { confirmToast } from '../lib/notify'
 import { DecisionCard } from './DecisionCard'
+import { MetricTooltip } from './MetricTooltip'
 import type {
   BacktestStatusPayload,
   BacktestPositionStatus,
@@ -128,6 +129,8 @@ function StatCard({
   suffix,
   trend,
   color = '#EAECEF',
+  metricKey,
+  language = 'en',
 }: {
   icon: typeof TrendingUp
   label: string
@@ -135,6 +138,8 @@ function StatCard({
   suffix?: string
   trend?: 'up' | 'down' | 'neutral'
   color?: string
+  metricKey?: string
+  language?: string
 }) {
   const trendColors = {
     up: '#0ECB81',
@@ -155,6 +160,9 @@ function StatCard({
         <span className="text-xs" style={{ color: '#848E9C' }}>
           {label}
         </span>
+        {metricKey && (
+          <MetricTooltip metricKey={metricKey} language={language} size={12} />
+        )}
       </div>
       <div className="flex items-baseline gap-1">
         <span className="text-xl font-bold" style={{ color }}>
@@ -2278,6 +2286,7 @@ export function BacktestPage() {
                   label={language === 'zh' ? '当前净值' : 'Equity'}
                   value={(status?.equity ?? 0).toFixed(2)}
                   suffix="USDT"
+                  language={language}
                 />
                 <StatCard
                   icon={TrendingUp}
@@ -2289,17 +2298,23 @@ export function BacktestPage() {
                       ? '#0ECB81'
                       : '#F6465D'
                   }
+                  metricKey="total_return"
+                  language={language}
                 />
                 <StatCard
                   icon={AlertTriangle}
                   label={language === 'zh' ? '最大回撤' : 'Max DD'}
                   value={`${(metrics?.max_drawdown_pct ?? 0).toFixed(2)}%`}
                   color="#F6465D"
+                  metricKey="max_drawdown"
+                  language={language}
                 />
                 <StatCard
                   icon={BarChart3}
                   label={language === 'zh' ? '夏普比率' : 'Sharpe'}
                   value={(metrics?.sharpe_ratio ?? 0).toFixed(2)}
+                  metricKey="sharpe_ratio"
+                  language={language}
                 />
               </div>
 
@@ -2369,15 +2384,14 @@ export function BacktestPage() {
 
                         {metrics && (
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
-                            <div
-                              className="p-3 rounded-lg"
-                              style={{ background: '#1E2329' }}
-                            >
-                              <div
-                                className="text-xs"
-                                style={{ color: '#848E9C' }}
-                              >
+                             <div className="p-3 rounded-lg" style={{ background: '#1E2329' }}>
+                               <div
+                                 className="flex items-center gap-1 text-xs"
+                                 style={{ color: '#848E9C' }}
+                               >
+
                                 {language === 'zh' ? '胜率' : 'Win Rate'}
+                                <MetricTooltip metricKey="win_rate" language={language} size={11} />
                               </div>
                               <div
                                 className="text-lg font-bold"
@@ -2386,17 +2400,14 @@ export function BacktestPage() {
                                 {(metrics.win_rate ?? 0).toFixed(1)}%
                               </div>
                             </div>
-                            <div
-                              className="p-3 rounded-lg"
-                              style={{ background: '#1E2329' }}
-                            >
-                              <div
-                                className="text-xs"
-                                style={{ color: '#848E9C' }}
-                              >
-                                {language === 'zh'
-                                  ? '盈亏因子'
-                                  : 'Profit Factor'}
+                             <div className="p-3 rounded-lg" style={{ background: '#1E2329' }}>
+                               <div
+                                 className="flex items-center gap-1 text-xs"
+                                 style={{ color: '#848E9C' }}
+                               >
+                                 {language === 'zh' ? '盈亏因子' : 'Profit Factor'}
+                                 <MetricTooltip metricKey="profit_factor" language={language} size={11} />
+
                               </div>
                               <div
                                 className="text-lg font-bold"
