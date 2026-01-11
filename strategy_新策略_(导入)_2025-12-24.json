@@ -1,0 +1,86 @@
+{
+  "name": "新策略 (导入)",
+  "description": "",
+  "config": {
+    "coin_source": {
+      "source_type": "static",
+      "static_coins": [
+        "BTCUSDT",
+        "ETHUSDT",
+        "BNBUSDT",
+        "SOLUSDT"
+      ],
+      "use_coin_pool": false,
+      "coin_pool_limit": 10,
+      "coin_pool_api_url": "http://nofxaios.com:30006/api/ai500/list?auth=cm_568c67eae410d912c54c",
+      "use_oi_top": false,
+      "oi_top_limit": 20,
+      "oi_top_api_url": "http://nofxaios.com:30006/api/oi/top-ranking?limit=20&duration=1h&auth=cm_568c67eae410d912c54c"
+    },
+    "indicators": {
+      "klines": {
+        "primary_timeframe": "1h",
+        "primary_count": 30,
+        "longer_timeframe": "4h",
+        "longer_count": 60,
+        "enable_multi_timeframe": true,
+        "selected_timeframes": [
+          "1h",
+          "4h",
+          "1d"
+        ]
+      },
+      "enable_raw_klines": true,
+      "enable_ema": true,
+      "enable_macd": true,
+      "enable_rsi": true,
+      "enable_atr": true,
+      "enable_boll": true,
+      "enable_volume": true,
+      "enable_oi": true,
+      "enable_funding_rate": true,
+      "ema_periods": [
+        20,
+        50
+      ],
+      "rsi_periods": [
+        7,
+        14
+      ],
+      "atr_periods": [
+        14
+      ],
+      "enable_quant_data": true,
+      "quant_data_api_url": "http://nofxaios.com:30006/api/coin/{symbol}?include=netflow,oi,price&auth=cm_568c67eae410d912c54c",
+      "enable_quant_oi": true,
+      "enable_quant_netflow": true,
+      "enable_oi_ranking": true,
+      "oi_ranking_api_url": "http://nofxaios.com:30006",
+      "oi_ranking_duration": "1h",
+      "oi_ranking_limit": 10
+    },
+    "risk_control": {
+      "max_positions": 2,
+      "btc_eth_max_leverage": 3,
+      "altcoin_max_leverage": 2,
+      "btc_eth_max_position_value_ratio": 3,
+      "altcoin_max_position_value_ratio": 0.6,
+      "max_margin_usage": 0.4,
+      "min_position_size": 50,
+      "min_risk_reward_ratio": 2.5,
+      "min_confidence": 85,
+      "min_hold_minutes": 60,
+      "cooldown_after_close_minutes": 30,
+      "min_tp_cost_multiplier": 3,
+      "min_stop_loss_distance_pct": 0.35
+    },
+    "prompt_sections": {
+      "role_definition": "# 你是一个专业的加密货币交易AI\n\n你的任务是根据提供的市场数据做出交易决策。你是一个经验丰富的量化交易员，擅长技术分析和风险管理。",
+      "trading_frequency": "# ⏱️ 交易频率意识\n\n- 优秀交易员：每天2-4笔 ≈ 每小时0.1-0.2笔\n- 每小时超过2笔 = 过度交易\n- 单笔持仓时间 ≥ 60分钟\n- 平仓后至少冷却30-60分钟才允许下一次开仓\n如果你发现自己每个周期都在交易 → 标准太低；如果持仓不到60分钟就平仓 → 太冲动。",
+      "entry_standards": "# 🎯 入场标准（严格）\n\n只在多个信号共振时入场。优先多周期趋势一致（如高周期EMA/MACD方向一致），避免单一指标、信号矛盾、横盘震荡、或平仓后立即重新开仓等低质量行为。",
+      "decision_process": "# 📋 决策流程\n\n1. 检查持仓 → 是否止盈/止损\n2. 扫描候选币种 + 多时间框架 → 是否存在强信号\n3. 确认冷却时间与风控约束后再下单\n4. 先写思维链，再输出结构化JSON"
+    }
+  },
+  "exported_at": "2025-12-24T09:14:10.004Z",
+  "version": "1.0"
+}
