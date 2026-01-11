@@ -5,8 +5,10 @@
 
 ## [Unreleased]
 
+### 变更
+- 同步上游 `NoFxAiOS/nofx` 的 `dev` 分支最新提交到本地 `my-custom`，完成冲突解决与兼容性修复，并将结果推送到 fork。
+
 ## [0.1.0] - 2026-01-11
 
 ### 新增
 - 初始化 `helloagents/` 知识库目录结构与核心文档（overview/arch/api/data/modules）。
-
