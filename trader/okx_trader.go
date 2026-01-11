@@ -1366,8 +1366,8 @@ func (t *OKXTrader) GetClosedPnL(startTime time.Time, limit int) ([]ClosedPnLRec
 		// Times
 		cTime, _ := strconv.ParseInt(pos.CTime, 10, 64)
 		uTime, _ := strconv.ParseInt(pos.UTime, 10, 64)
-		record.EntryTime = time.UnixMilli(cTime)
-		record.ExitTime = time.UnixMilli(uTime)
+		record.EntryTime = time.UnixMilli(cTime).UTC()
+		record.ExitTime = time.UnixMilli(uTime).UTC()
 
 		// Close type
 		switch pos.Type {
@@ -1386,4 +1386,10 @@ func (t *OKXTrader) GetClosedPnL(startTime time.Time, limit int) ([]ClosedPnLRec
 	}
 
 	return records, nil
+}
+
+// GetOpenOrders gets all open/pending orders for a symbol
+func (t *OKXTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
+	// TODO: Implement OKX open orders
+	return []OpenOrder{}, nil
 }

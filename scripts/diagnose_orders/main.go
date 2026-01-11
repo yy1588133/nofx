@@ -7,6 +7,7 @@ import (
 	"nofx/store"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 func main() {
@@ -41,7 +42,7 @@ func main() {
 	// 如果指定了 traderID，获取该 trader 的订单
 	if traderID == "" {
 		fmt.Println("\n⚠️  未指定 trader_id，使用: --trader <trader_id>")
-		fmt.Println("   获取所有 trader 的统计信息...\n")
+		fmt.Println("   获取所有 trader 的统计信息...")
 	}
 
 	// 获取订单列表
@@ -83,7 +84,7 @@ func main() {
 			filledOrders++
 
 			// 检查 filled_at
-			if !order.FilledAt.IsZero() {
+			if order.FilledAt > 0 {
 				withFilledAt++
 			} else {
 				missingFilledAt++
@@ -119,8 +120,8 @@ func main() {
 		}
 
 		filledAtStr := "N/A"
-		if !order.FilledAt.IsZero() {
-			filledAtStr = order.FilledAt.Format("01-02 15:04")
+		if order.FilledAt > 0 {
+			filledAtStr = time.UnixMilli(order.FilledAt).Format("01-02 15:04")
 		}
 
 		fmt.Printf("%-15s %-10s %-10s %-15.2f %-10s %s\n",

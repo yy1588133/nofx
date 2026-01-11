@@ -307,7 +307,7 @@ func (t *PaperTrader) openPosition(symbol, side string, quantity float64, levera
 	}
 
 	// 7. 使用事务执行所有数据库更新
-	err = t.store.Transaction(func(tx *sql.Tx) error {
+	err = t.store.TransactionSQL(func(tx *sql.Tx) error {
 		// 7.1 更新账户余额
 		account.CurrentBalance -= (margin + fee)
 		account.TotalMarginUsed += margin
@@ -448,7 +448,7 @@ func (t *PaperTrader) closePosition(symbol, side string, quantity float64) (map[
 	isFullClose := quantity >= pos.Quantity
 
 	// 8. 使用事务执行所有数据库更新
-	err = t.store.Transaction(func(tx *sql.Tx) error {
+	err = t.store.TransactionSQL(func(tx *sql.Tx) error {
 		// 8.1 更新账户余额
 		account.CurrentBalance += marginReleased + realizedPnL
 		account.TotalMarginUsed -= marginReleased
@@ -634,6 +634,66 @@ func (t *PaperTrader) GetClosedPnL(startTime time.Time, limit int) ([]ClosedPnLR
 	return records, nil
 }
 
+// GetOpenOrders returns synthetic open orders for paper trading.
+//
+// Paper Trading 本身没有“挂单簿”，止损/止盈是写在 PaperPosition.StopLoss/TakeProfit 上的。
+// 为了兼容 Trader 接口，这里将其映射为待触发的 STOP/TAKE_PROFIT 订单。
+func (t *PaperTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
+	positions, err := t.store.PaperAccount().ListPositions(t.accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	symbolUpper := strings.ToUpper(strings.TrimSpace(symbol))
+	var orders []OpenOrder
+
+	for _, pos := range positions {
+		if pos == nil {
+			continue
+		}
+		if symbolUpper != "" && strings.ToUpper(pos.Symbol) != symbolUpper {
+			continue
+		}
+		if pos.Quantity <= 0 {
+			continue
+		}
+
+		positionSide := strings.ToUpper(pos.Side) // LONG / SHORT
+		closeSide := "SELL"
+		if positionSide == "SHORT" {
+			closeSide = "BUY"
+		}
+
+		if pos.StopLoss > 0 {
+			orders = append(orders, OpenOrder{
+				OrderID:      fmt.Sprintf("paper_sl_%d", pos.ID),
+				Symbol:       pos.Symbol,
+				Side:         closeSide,
+				PositionSide: positionSide,
+				Type:         "STOP_MARKET",
+				StopPrice:    pos.StopLoss,
+				Quantity:     pos.Quantity,
+				Status:       "NEW",
+			})
+		}
+
+		if pos.TakeProfit > 0 {
+			orders = append(orders, OpenOrder{
+				OrderID:      fmt.Sprintf("paper_tp_%d", pos.ID),
+				Symbol:       pos.Symbol,
+				Side:         closeSide,
+				PositionSide: positionSide,
+				Type:         "TAKE_PROFIT_MARKET",
+				StopPrice:    pos.TakeProfit,
+				Quantity:     pos.Quantity,
+				Status:       "NEW",
+			})
+		}
+	}
+
+	return orders, nil
+}
+
 // determineCloseType 根据订单类型判断平仓类型
 func determineCloseType(orderType string) string {
 	switch orderType {
@@ -778,7 +838,7 @@ func (t *PaperTrader) executeAutoClose(pos *store.PaperPosition, execPrice float
 	}
 
 	// 5. 使用事务执行所有数据库更新
-	err = t.store.Transaction(func(tx *sql.Tx) error {
+	err = t.store.TransactionSQL(func(tx *sql.Tx) error {
 		// 5.1 更新账户余额
 		account.CurrentBalance += marginReleased + realizedPnL
 		account.TotalMarginUsed -= marginReleased

@@ -1,6 +1,4 @@
-package decision
-
-import "fmt"
+package kernel
 
 // ============================================================================
 // Trading Data Schema - 交易数据字典
@@ -157,7 +155,7 @@ var DataDictionary = map[string]map[string]BilingualFieldDef{
 			NameZH: "峰值盈亏百分比",
 			NameEN: "Peak PnL Percentage",
 			Unit:   "%",
-			DescZH: "该持仓曾经达到的最高未实现盈亏。用于判断是否需要止盈",
+			DescZH: "该持仓曾经达到的峰值未实现盈亏。用于判断是否需要止盈",
 			DescEN: "Historical max unrealized PnL for this position. Used for take-profit decisions",
 		},
 		"Drawdown": {
@@ -308,7 +306,7 @@ var TradingRules = struct {
 			Value:    0.30,
 			DescZH:   "当盈亏从峰值回撤30%时平仓止盈",
 			DescEN:   "Close position when PnL pulls back 30% from peak",
-			ReasonZH: "锁定大部分利润，避免盈利回吐。例如：峰值+5%，回撤到+3.5%时平仓",
+			ReasonZH: "锁定大部分利润，避免盈利回吐，属于回撤止盈策略。例如：峰值+5%，回撤到+3.5%时平仓",
 			ReasonEN: "Lock in most profits, avoid profit giveback. E.g., Peak +5%, close at +3.5%",
 		},
 		"StopLoss": {
@@ -481,32 +479,12 @@ func getSchemaPromptZH() string {
 		prompt += formatFieldDefZH(key, field)
 	}
 
-	// 交易规则
-	prompt += "\n## ⚖️ 交易规则\n\n"
-	prompt += "### 风险管理\n"
-	for name, rule := range TradingRules.RiskManagement {
-		prompt += "- **" + name + "**: " + rule.DescZH + "\n  理由：" + rule.ReasonZH + "\n"
-	}
-
-	prompt += "\n### 出场信号\n"
-	for name, rule := range TradingRules.ExitSignals {
-		prompt += "- **" + name + "**: " + rule.DescZH + "\n  理由：" + rule.ReasonZH + "\n"
-	}
-
 	// OI解读
 	prompt += "\n## 💹 持仓量(OI)变化解读\n\n"
 	prompt += "- **OI增加 + 价格上涨**: " + OIInterpretation.OIUp_PriceUp.ZH + "\n"
 	prompt += "- **OI增加 + 价格下跌**: " + OIInterpretation.OIUp_PriceDown.ZH + "\n"
 	prompt += "- **OI减少 + 价格上涨**: " + OIInterpretation.OIDown_PriceUp.ZH + "\n"
 	prompt += "- **OI减少 + 价格下跌**: " + OIInterpretation.OIDown_PriceDown.ZH + "\n"
-
-	// 常见错误
-	prompt += "\n## ⚠️ 常见错误（请避免）\n\n"
-	for i, mistake := range CommonMistakes {
-		prompt += fmt.Sprintf("**错误%d**: %s\n", i+1, mistake.ErrorZH)
-		prompt += "- 错误示例：" + mistake.ExampleZH + "\n"
-		prompt += "- 正确做法：" + mistake.CorrectZH + "\n\n"
-	}
 
 	return prompt
 }
@@ -540,32 +518,12 @@ func getSchemaPromptEN() string {
 		prompt += formatFieldDefEN(key, field)
 	}
 
-	// Trading Rules
-	prompt += "\n## ⚖️ Trading Rules\n\n"
-	prompt += "### Risk Management\n"
-	for name, rule := range TradingRules.RiskManagement {
-		prompt += "- **" + name + "**: " + rule.DescEN + "\n  Reason: " + rule.ReasonEN + "\n"
-	}
-
-	prompt += "\n### Exit Signals\n"
-	for name, rule := range TradingRules.ExitSignals {
-		prompt += "- **" + name + "**: " + rule.DescEN + "\n  Reason: " + rule.ReasonEN + "\n"
-	}
-
 	// OI Interpretation
 	prompt += "\n## 💹 Open Interest (OI) Change Interpretation\n\n"
 	prompt += "- **OI Up + Price Up**: " + OIInterpretation.OIUp_PriceUp.EN + "\n"
 	prompt += "- **OI Up + Price Down**: " + OIInterpretation.OIUp_PriceDown.EN + "\n"
 	prompt += "- **OI Down + Price Up**: " + OIInterpretation.OIDown_PriceUp.EN + "\n"
 	prompt += "- **OI Down + Price Down**: " + OIInterpretation.OIDown_PriceDown.EN + "\n"
-
-	// Common Mistakes
-	prompt += "\n## ⚠️ Common Mistakes to Avoid\n\n"
-	for i, mistake := range CommonMistakes {
-		prompt += fmt.Sprintf("**Mistake %d**: %s\n", i+1, mistake.ErrorEN)
-		prompt += "- Bad Example: " + mistake.ExampleEN + "\n"
-		prompt += "- Correct Approach: " + mistake.CorrectEN + "\n\n"
-	}
 
 	return prompt
 }

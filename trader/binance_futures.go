@@ -776,6 +776,64 @@ func (t *FuturesTrader) CancelStopOrders(symbol string) error {
 	return nil
 }
 
+// GetOpenOrders gets all open/pending orders for a symbol
+func (t *FuturesTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
+	var result []OpenOrder
+
+	// 1. Get legacy open orders
+	orders, err := t.client.NewListOpenOrdersService().
+		Symbol(symbol).
+		Do(context.Background())
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get open orders: %w", err)
+	}
+
+	for _, order := range orders {
+		price, _ := strconv.ParseFloat(order.Price, 64)
+		stopPrice, _ := strconv.ParseFloat(order.StopPrice, 64)
+		quantity, _ := strconv.ParseFloat(order.OrigQuantity, 64)
+
+		result = append(result, OpenOrder{
+			OrderID:      fmt.Sprintf("%d", order.OrderID),
+			Symbol:       order.Symbol,
+			Side:         string(order.Side),
+			PositionSide: string(order.PositionSide),
+			Type:         string(order.Type),
+			Price:        price,
+			StopPrice:    stopPrice,
+			Quantity:     quantity,
+			Status:       string(order.Status),
+		})
+	}
+
+	// 2. Get Algo orders (new API for stop-loss/take-profit)
+	algoOrders, err := t.client.NewListOpenAlgoOrdersService().
+		Symbol(symbol).
+		Do(context.Background())
+
+	if err == nil {
+		for _, algoOrder := range algoOrders {
+			triggerPrice, _ := strconv.ParseFloat(algoOrder.TriggerPrice, 64)
+			quantity, _ := strconv.ParseFloat(algoOrder.Quantity, 64)
+
+			result = append(result, OpenOrder{
+				OrderID:      fmt.Sprintf("%d", algoOrder.AlgoId),
+				Symbol:       algoOrder.Symbol,
+				Side:         string(algoOrder.Side),
+				PositionSide: string(algoOrder.PositionSide),
+				Type:         string(algoOrder.OrderType),
+				Price:        0, // Algo orders use stop price
+				StopPrice:    triggerPrice,
+				Quantity:     quantity,
+				Status:       "NEW",
+			})
+		}
+	}
+
+	return result, nil
+}
+
 // GetMarketPrice gets market price
 func (t *FuturesTrader) GetMarketPrice(symbol string) (float64, error) {
 	prices, err := t.client.NewListPricesService().Symbol(symbol).Do(context.Background())
@@ -1122,7 +1180,7 @@ func (t *FuturesTrader) GetTrades(startTime time.Time, limit int) ([]TradeRecord
 			TradeID:     strconv.FormatInt(income.TranID, 10),
 			Symbol:      income.Symbol,
 			RealizedPnL: pnl,
-			Time:        time.UnixMilli(income.Time),
+			Time:        time.UnixMilli(income.Time).UTC(),
 			// Note: Income API doesn't provide price, quantity, side, fee
 			// For accurate data, use GetTradesForSymbol with specific symbol
 		}
@@ -1167,10 +1225,107 @@ func (t *FuturesTrader) GetTradesForSymbol(symbol string, startTime time.Time, l
 			Quantity:     qty,
 			RealizedPnL:  pnl,
 			Fee:          fee,
-			Time:         time.UnixMilli(at.Time),
+			Time:         time.UnixMilli(at.Time).UTC(),
 		}
 		trades = append(trades, trade)
 	}
 
 	return trades, nil
+}
+
+// GetTradesForSymbolFromID retrieves trade history for a specific symbol starting from a given trade ID
+// This is used for incremental sync - only fetch new trades since last sync
+func (t *FuturesTrader) GetTradesForSymbolFromID(symbol string, fromID int64, limit int) ([]TradeRecord, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+
+	accountTrades, err := t.client.NewListAccountTradeService().
+		Symbol(symbol).
+		FromID(fromID).
+		Limit(limit).
+		Do(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get trade history for %s from ID %d: %w", symbol, fromID, err)
+	}
+
+	var trades []TradeRecord
+	for _, at := range accountTrades {
+		price, _ := strconv.ParseFloat(at.Price, 64)
+		qty, _ := strconv.ParseFloat(at.Quantity, 64)
+		fee, _ := strconv.ParseFloat(at.Commission, 64)
+		pnl, _ := strconv.ParseFloat(at.RealizedPnl, 64)
+
+		trade := TradeRecord{
+			TradeID:      strconv.FormatInt(at.ID, 10),
+			Symbol:       at.Symbol,
+			Side:         string(at.Side),
+			PositionSide: string(at.PositionSide),
+			Price:        price,
+			Quantity:     qty,
+			RealizedPnL:  pnl,
+			Fee:          fee,
+			Time:         time.UnixMilli(at.Time).UTC(),
+		}
+		trades = append(trades, trade)
+	}
+
+	return trades, nil
+}
+
+// GetCommissionSymbols returns symbols that have new commission records since lastSyncTime
+// COMMISSION income is generated for every trade, so this is more reliable than REALIZED_PNL
+func (t *FuturesTrader) GetCommissionSymbols(lastSyncTime time.Time) ([]string, error) {
+	incomes, err := t.client.NewGetIncomeHistoryService().
+		IncomeType("COMMISSION").
+		StartTime(lastSyncTime.UnixMilli()).
+		Limit(1000).
+		Do(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get commission history: %w", err)
+	}
+
+	symbolMap := make(map[string]bool)
+	for _, income := range incomes {
+		if income.Symbol != "" {
+			symbolMap[income.Symbol] = true
+		}
+	}
+
+	var symbols []string
+	for symbol := range symbolMap {
+		symbols = append(symbols, symbol)
+	}
+
+	return symbols, nil
+}
+
+// GetPnLSymbols returns symbols that have REALIZED_PNL records since lastSyncTime
+// This is a fallback when COMMISSION detection fails (VIP users, BNB fee discount)
+func (t *FuturesTrader) GetPnLSymbols(lastSyncTime time.Time) ([]string, error) {
+	incomes, err := t.client.NewGetIncomeHistoryService().
+		IncomeType("REALIZED_PNL").
+		StartTime(lastSyncTime.UnixMilli()).
+		Limit(1000).
+		Do(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get PnL history: %w", err)
+	}
+
+	symbolMap := make(map[string]bool)
+	for _, income := range incomes {
+		if income.Symbol != "" {
+			symbolMap[income.Symbol] = true
+		}
+	}
+
+	var symbols []string
+	for symbol := range symbolMap {
+		symbols = append(symbols, symbol)
+	}
+
+	return symbols, nil
 }

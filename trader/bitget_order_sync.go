@@ -110,7 +110,7 @@ func (t *BitgetTrader) GetTrades(startTime time.Time, limit int) ([]BitgetTrade,
 			FillQty:     fillQty,
 			Fee:         -fee, // Bitget returns negative fee
 			FeeAsset:    fill.FeeCcy,
-			ExecTime:    time.UnixMilli(cTime),
+			ExecTime:    time.UnixMilli(cTime).UTC(),
 			ProfitLoss:  profit,
 			OrderType:   "MARKET",
 			OrderAction: orderAction,
@@ -146,7 +146,7 @@ func (t *BitgetTrader) SyncOrdersFromBitget(traderID string, exchangeID string, 
 
 	// Sort trades by time ASC (oldest first) for proper position building
 	sort.Slice(trades, func(i, j int) bool {
-		return trades[i].ExecTime.Before(trades[j].ExecTime)
+		return trades[i].ExecTime.UnixMilli() < trades[j].ExecTime.UnixMilli()
 	})
 
 	// Process trades one by one (no transaction to avoid deadlock)
@@ -174,7 +174,8 @@ func (t *BitgetTrader) SyncOrdersFromBitget(traderID string, exchangeID string, 
 		// Normalize side for storage
 		side := strings.ToUpper(trade.Side)
 
-		// Create order record
+		// Create order record - use UTC time in milliseconds to avoid timezone issues
+		execTimeMs := trade.ExecTime.UTC().UnixMilli()
 		orderRecord := &store.TraderOrder{
 			TraderID:        traderID,
 			ExchangeID:      exchangeID,   // UUID
@@ -191,9 +192,9 @@ func (t *BitgetTrader) SyncOrdersFromBitget(traderID string, exchangeID string, 
 			FilledQuantity:  trade.FillQty,
 			AvgFillPrice:    trade.FillPrice,
 			Commission:      trade.Fee,
-			FilledAt:        trade.ExecTime,
-			CreatedAt:       trade.ExecTime,
-			UpdatedAt:       trade.ExecTime,
+			FilledAt:        execTimeMs,
+			CreatedAt:       execTimeMs,
+			UpdatedAt:       execTimeMs,
 		}
 
 		// Insert order record
@@ -202,7 +203,7 @@ func (t *BitgetTrader) SyncOrdersFromBitget(traderID string, exchangeID string, 
 			continue
 		}
 
-		// Create fill record
+		// Create fill record - use UTC time in milliseconds
 		fillRecord := &store.TraderFill{
 			TraderID:        traderID,
 			ExchangeID:      exchangeID,   // UUID
@@ -219,7 +220,7 @@ func (t *BitgetTrader) SyncOrdersFromBitget(traderID string, exchangeID string, 
 			CommissionAsset: trade.FeeAsset,
 			RealizedPnL:     trade.ProfitLoss,
 			IsMaker:         false,
-			CreatedAt:       trade.ExecTime,
+			CreatedAt:       execTimeMs,
 		}
 
 		if err := orderStore.CreateFill(fillRecord); err != nil {
@@ -231,7 +232,7 @@ func (t *BitgetTrader) SyncOrdersFromBitget(traderID string, exchangeID string, 
 			traderID, exchangeID, exchangeType,
 			symbol, positionSide, trade.OrderAction,
 			trade.FillQty, trade.FillPrice, trade.Fee, trade.ProfitLoss,
-			trade.ExecTime, trade.TradeID,
+			execTimeMs, trade.TradeID,
 		); err != nil {
 			logger.Infof("  ⚠️ Failed to sync position for trade %s: %v", trade.TradeID, err)
 		} else {

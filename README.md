@@ -14,9 +14,18 @@
 
 ---
 
-## AI-Powered Crypto Trading Platform
+## AI-Powered Multi-Asset Trading Platform
 
-**NOFX** is an open-source AI trading system that lets you run multiple AI models to trade crypto futures automatically. Configure strategies through a web interface, monitor performance in real-time, and let AI agents compete to find the best trading approach.
+**NOFX** is an open-source AI trading system that lets you run multiple AI models to trade automatically. Configure strategies through a web interface, monitor performance in real-time, and let AI agents compete to find the best trading approach.
+
+### Supported Markets
+
+| Market | Trading | Status |
+|--------|---------|--------|
+| 🪙 **Crypto** | BTC, ETH, Altcoins | ✅ Supported |
+| 📈 **US Stocks** | AAPL, TSLA, NVDA, etc. | ✅ Supported |
+| 💱 **Forex** | EUR/USD, GBP/USD, etc. | ✅ Supported |
+| 🥇 **Metals** | Gold, Silver | ✅ Supported |
 
 ### Core Features
 
@@ -38,6 +47,50 @@
 ## Developer Community
 
 Join our Telegram developer community: **[NOFX Developer Community](https://t.me/nofx_dev_community)**
+
+---
+
+## Before You Begin
+
+To use NOFX, you'll need:
+
+1. **Exchange Account** - Register on any supported exchange and create API credentials with trading permissions
+2. **AI Model API Key** - Get from any supported provider (DeepSeek recommended for cost-effectiveness)
+
+---
+
+## Supported Exchanges
+
+### CEX (Centralized Exchanges)
+
+| Exchange | Status | Register (Fee Discount) |
+|----------|--------|-------------------------|
+| **Binance** | ✅ Supported | [Register](https://www.binance.com/join?ref=NOFXENG) |
+| **Bybit** | ✅ Supported | [Register](https://partner.bybit.com/b/83856) |
+| **OKX** | ✅ Supported | [Register](https://www.okx.com/join/1865360) |
+| **Bitget** | ✅ Supported | [Register](https://www.bitget.com/referral/register?from=referral&clacCode=c8a43172) |
+
+### Perp-DEX (Decentralized Perpetual Exchanges)
+
+| Exchange | Status | Register (Fee Discount) |
+|----------|--------|-------------------------|
+| **Hyperliquid** | ✅ Supported | [Register](https://app.hyperliquid.xyz/join/AITRADING) |
+| **Aster DEX** | ✅ Supported | [Register](https://www.asterdex.com/en/referral/fdfc0e) |
+| **Lighter** | ✅ Supported | [Register](https://app.lighter.xyz/?referral=68151432) |
+
+---
+
+## Supported AI Models
+
+| AI Model | Status | Get API Key |
+|----------|--------|-------------|
+| **DeepSeek** | ✅ Supported | [Get API Key](https://platform.deepseek.com) |
+| **Qwen** | ✅ Supported | [Get API Key](https://dashscope.console.aliyun.com) |
+| **OpenAI (GPT)** | ✅ Supported | [Get API Key](https://platform.openai.com) |
+| **Claude** | ✅ Supported | [Get API Key](https://console.anthropic.com) |
+| **Gemini** | ✅ Supported | [Get API Key](https://aistudio.google.com) |
+| **Grok** | ✅ Supported | [Get API Key](https://console.x.ai) |
+| **Kimi** | ✅ Supported | [Get API Key](https://platform.moonshot.cn) |
 
 ---
 
@@ -78,44 +131,9 @@ Join our Telegram developer community: **[NOFX Developer Community](https://t.me
 
 ---
 
-## Supported Exchanges
-
-### CEX (Centralized Exchanges)
-
-| Exchange | Status | Register (Fee Discount) |
-|----------|--------|-------------------------|
-| **Binance** | ✅ Supported | [Register](https://www.binance.com/join?ref=NOFXENG) |
-| **Bybit** | ✅ Supported | [Register](https://partner.bybit.com/b/83856) |
-| **OKX** | ✅ Supported | [Register](https://www.okx.com/join/1865360) |
-| **Bitget** | ✅ Supported | [Register](https://www.bitget.com/referral/register?from=referral&clacCode=c8a43172) |
-
-### Perp-DEX (Decentralized Perpetual Exchanges)
-
-| Exchange | Status | Register (Fee Discount) |
-|----------|--------|-------------------------|
-| **Hyperliquid** | ✅ Supported | [Register](https://app.hyperliquid.xyz/join/AITRADING) |
-| **Aster DEX** | ✅ Supported | [Register](https://www.asterdex.com/en/referral/fdfc0e) |
-| **Lighter** | ✅ Supported | [Register](https://app.lighter.xyz/?referral=68151432) |
-
----
-
-## Supported AI Models
-
-| AI Model | Status | Get API Key |
-|----------|--------|-------------|
-| **DeepSeek** | ✅ Supported | [Get API Key](https://platform.deepseek.com) |
-| **Qwen** | ✅ Supported | [Get API Key](https://dashscope.console.aliyun.com) |
-| **OpenAI (GPT)** | ✅ Supported | [Get API Key](https://platform.openai.com) |
-| **Claude** | ✅ Supported | [Get API Key](https://console.anthropic.com) |
-| **Gemini** | ✅ Supported | [Get API Key](https://aistudio.google.com) |
-| **Grok** | ✅ Supported | [Get API Key](https://console.x.ai) |
-| **Kimi** | ✅ Supported | [Get API Key](https://platform.moonshot.cn) |
-
----
-
 ## Quick Start
 
-### One-Click Install (Recommended)
+### One-Click Install (Local/Server)
 
 **Linux / macOS:**
 ```bash
@@ -123,6 +141,14 @@ curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bas
 ```
 
 That's it! Open **http://127.0.0.1:3000** in your browser.
+
+### One-Click Cloud Deploy (Railway)
+
+Deploy to Railway with one click - no server setup required:
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/nofx?referralCode=nofx)
+
+After deployment, Railway will provide a public URL to access your NOFX instance.
 
 ### Docker Compose (Manual)
 

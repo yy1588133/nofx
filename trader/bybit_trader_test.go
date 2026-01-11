@@ -177,6 +177,12 @@ func TestBybitTrader_SymbolFormat(t *testing.T) {
 // TestBybitTrader_FormatQuantity Test quantity formatting
 func TestBybitTrader_FormatQuantity(t *testing.T) {
 	trader := NewBybitTrader("test", "test")
+	// 单元测试不依赖真实网络/交易所信息：预置 qtyStep 缓存以保证稳定性
+	trader.qtyStepCacheMutex.Lock()
+	trader.qtyStepCache["BTCUSDT"] = 0.001
+	trader.qtyStepCache["ETHUSDT"] = 0.01
+	trader.qtyStepCache["SOLUSDT"] = 0.1
+	trader.qtyStepCacheMutex.Unlock()
 
 	tests := []struct {
 		name     string

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"nofx/decision"
+	"nofx/kernel"
 	"nofx/market"
 	"nofx/store"
 
@@ -99,7 +99,7 @@ func (s *AutoTraderTestSuite) SetupTest() {
 		trader:                s.mockTrader,
 		mcpClient:             nil, // No actual MCP Client needed in tests
 		store:                 s.mockStore,
-		strategyEngine:        decision.NewStrategyEngine(&defaultStrategy),
+		strategyEngine:        kernel.NewStrategyEngine(&defaultStrategy),
 		initialBalance:        s.config.InitialBalance,
 		lastResetTime:         time.Now(),
 		startTime:             time.Now(),
@@ -129,11 +129,11 @@ func (s *AutoTraderTestSuite) TearDownTest() {
 func (s *AutoTraderTestSuite) TestSortDecisionsByPriority() {
 	tests := []struct {
 		name  string
-		input []decision.Decision
+		input []kernel.Decision
 	}{
 		{
 			name: "Mixed decisions - verify priority sorting",
-			input: []decision.Decision{
+			input: []kernel.Decision{
 				{Action: "open_long", Symbol: "BTCUSDT"},
 				{Action: "close_short", Symbol: "ETHUSDT"},
 				{Action: "hold", Symbol: "BNBUSDT"},
@@ -362,63 +362,63 @@ func (s *AutoTraderTestSuite) TestBuildTradingContext() {
 
 // TestExecuteOpenPosition Test open position operation (common for long and short)
 func (s *AutoTraderTestSuite) TestExecuteOpenPosition() {
-	tests := []struct {
-		name          string
-		action        string
-		expectedOrder int64
-		existingSide  string
-		availBalance  float64
-		expectedErr   string
-		executeFn     func(*decision.Decision, *store.DecisionAction) error
-	}{
+		tests := []struct {
+			name          string
+			action        string
+			expectedOrder int64
+			existingSide  string
+			availBalance  float64
+			expectedErr   string
+			executeFn     func(*kernel.Decision, *store.DecisionAction) error
+		}{
 		{
-			name:          "Successfully open long",
-			action:        "open_long",
-			expectedOrder: 123456,
-			availBalance:  8000.0,
-			executeFn: func(d *decision.Decision, a *store.DecisionAction) error {
-				return s.autoTrader.executeOpenLongWithRecord(d, a)
+				name:          "Successfully open long",
+				action:        "open_long",
+				expectedOrder: 123456,
+				availBalance:  8000.0,
+				executeFn: func(d *kernel.Decision, a *store.DecisionAction) error {
+					return s.autoTrader.executeOpenLongWithRecord(d, a)
+				},
 			},
-		},
 		{
-			name:          "Successfully open short",
-			action:        "open_short",
-			expectedOrder: 123457,
-			availBalance:  8000.0,
-			executeFn: func(d *decision.Decision, a *store.DecisionAction) error {
-				return s.autoTrader.executeOpenShortWithRecord(d, a)
+				name:          "Successfully open short",
+				action:        "open_short",
+				expectedOrder: 123457,
+				availBalance:  8000.0,
+				executeFn: func(d *kernel.Decision, a *store.DecisionAction) error {
+					return s.autoTrader.executeOpenShortWithRecord(d, a)
+				},
 			},
-		},
 		{
-			name:         "Long - insufficient margin",
-			action:       "open_long",
-			availBalance: 0.0,
-			expectedErr:  "below minimum",
-			executeFn: func(d *decision.Decision, a *store.DecisionAction) error {
-				return s.autoTrader.executeOpenLongWithRecord(d, a)
+				name:         "Long - insufficient margin",
+				action:       "open_long",
+				availBalance: 0.0,
+				expectedErr:  "below minimum",
+				executeFn: func(d *kernel.Decision, a *store.DecisionAction) error {
+					return s.autoTrader.executeOpenLongWithRecord(d, a)
+				},
 			},
-		},
 		{
-			name:         "Long - already has same side position",
-			action:       "open_long",
-			existingSide: "long",
-			availBalance: 8000.0,
-			expectedErr:  "already has long position",
-			executeFn: func(d *decision.Decision, a *store.DecisionAction) error {
-				return s.autoTrader.executeOpenLongWithRecord(d, a)
+				name:         "Long - already has same side position",
+				action:       "open_long",
+				existingSide: "long",
+				availBalance: 8000.0,
+				expectedErr:  "already has long position",
+				executeFn: func(d *kernel.Decision, a *store.DecisionAction) error {
+					return s.autoTrader.executeOpenLongWithRecord(d, a)
+				},
 			},
-		},
 		{
-			name:         "Short - already has same side position",
-			action:       "open_short",
-			existingSide: "short",
-			availBalance: 8000.0,
-			expectedErr:  "already has short position",
-			executeFn: func(d *decision.Decision, a *store.DecisionAction) error {
-				return s.autoTrader.executeOpenShortWithRecord(d, a)
+				name:         "Short - already has same side position",
+				action:       "open_short",
+				existingSide: "short",
+				availBalance: 8000.0,
+				expectedErr:  "already has short position",
+				executeFn: func(d *kernel.Decision, a *store.DecisionAction) error {
+					return s.autoTrader.executeOpenShortWithRecord(d, a)
+				},
 			},
-		},
-	}
+		}
 
 	for _, tt := range tests {
 
@@ -443,7 +443,7 @@ func (s *AutoTraderTestSuite) TestExecuteOpenPosition() {
 				s.mockTrader.positions = []map[string]interface{}{}
 			}
 
-			decision := &decision.Decision{Action: tt.action, Symbol: "BTCUSDT", PositionSizeUSD: 1000.0, Leverage: 10}
+			decision := &kernel.Decision{Action: tt.action, Symbol: "BTCUSDT", PositionSizeUSD: 1000.0, Leverage: 10}
 			if tt.action == "open_long" {
 				decision.StopLoss = 49500.0
 				decision.TakeProfit = 51500.0
@@ -474,32 +474,32 @@ func (s *AutoTraderTestSuite) TestExecuteOpenPosition() {
 
 // TestExecuteClosePosition Test close position operation (common for long and short)
 func (s *AutoTraderTestSuite) TestExecuteClosePosition() {
-	tests := []struct {
-		name          string
-		action        string
-		currentPrice  float64
-		expectedOrder int64
-		executeFn     func(*decision.Decision, *store.DecisionAction) error
-	}{
+		tests := []struct {
+			name          string
+			action        string
+			currentPrice  float64
+			expectedOrder int64
+			executeFn     func(*kernel.Decision, *store.DecisionAction) error
+		}{
 		{
-			name:          "Successfully close long",
-			action:        "close_long",
-			currentPrice:  51000.0,
-			expectedOrder: 123458,
-			executeFn: func(d *decision.Decision, a *store.DecisionAction) error {
-				return s.autoTrader.executeCloseLongWithRecord(d, a)
+				name:          "Successfully close long",
+				action:        "close_long",
+				currentPrice:  51000.0,
+				expectedOrder: 123458,
+				executeFn: func(d *kernel.Decision, a *store.DecisionAction) error {
+					return s.autoTrader.executeCloseLongWithRecord(d, a)
+				},
 			},
-		},
 		{
-			name:          "Successfully close short",
-			action:        "close_short",
-			currentPrice:  49000.0,
-			expectedOrder: 123459,
-			executeFn: func(d *decision.Decision, a *store.DecisionAction) error {
-				return s.autoTrader.executeCloseShortWithRecord(d, a)
+				name:          "Successfully close short",
+				action:        "close_short",
+				currentPrice:  49000.0,
+				expectedOrder: 123459,
+				executeFn: func(d *kernel.Decision, a *store.DecisionAction) error {
+					return s.autoTrader.executeCloseShortWithRecord(d, a)
+				},
 			},
-		},
-	}
+		}
 
 	for _, tt := range tests {
 		time.Sleep(time.Millisecond)
@@ -508,7 +508,7 @@ func (s *AutoTraderTestSuite) TestExecuteClosePosition() {
 				return &market.Data{Symbol: symbol, CurrentPrice: tt.currentPrice}, nil
 			})
 
-			decision := &decision.Decision{Action: tt.action, Symbol: "BTCUSDT"}
+			decision := &kernel.Decision{Action: tt.action, Symbol: "BTCUSDT"}
 			actionRecord := &store.DecisionAction{Action: tt.action, Symbol: "BTCUSDT"}
 
 			err := tt.executeFn(decision, actionRecord)
@@ -533,11 +533,11 @@ func (s *AutoTraderTestSuite) TestExecuteDecisionWithRecord() {
 		}, nil
 	})
 
-	s.Run("Route to open_long", func() {
-		decision := &decision.Decision{
-			Action:          "open_long",
-			Symbol:          "BTCUSDT",
-			PositionSizeUSD: 1000.0,
+		s.Run("Route to open_long", func() {
+			decision := &kernel.Decision{
+				Action:          "open_long",
+				Symbol:          "BTCUSDT",
+				PositionSizeUSD: 1000.0,
 			Leverage:        10,
 			StopLoss:        49500.0,
 			TakeProfit:      51500.0,
@@ -549,7 +549,7 @@ func (s *AutoTraderTestSuite) TestExecuteDecisionWithRecord() {
 	})
 
 	s.Run("Route to close_long", func() {
-		decision := &decision.Decision{
+		decision := &kernel.Decision{
 			Action: "close_long",
 			Symbol: "BTCUSDT",
 		}
@@ -560,7 +560,7 @@ func (s *AutoTraderTestSuite) TestExecuteDecisionWithRecord() {
 	})
 
 	s.Run("Route to hold - no execution", func() {
-		decision := &decision.Decision{
+		decision := &kernel.Decision{
 			Action: "hold",
 			Symbol: "BTCUSDT",
 		}
@@ -571,7 +571,7 @@ func (s *AutoTraderTestSuite) TestExecuteDecisionWithRecord() {
 	})
 
 	s.Run("Unknown action returns error", func() {
-		decision := &decision.Decision{
+		decision := &kernel.Decision{
 			Action: "unknown_action",
 			Symbol: "BTCUSDT",
 		}
@@ -846,6 +846,10 @@ func (m *MockTrader) GetOrderStatus(symbol string, orderID string) (map[string]i
 }
 
 func (m *MockTrader) GetClosedPnL(startTime time.Time, limit int) ([]ClosedPnLRecord, error) {
+	return nil, nil
+}
+
+func (m *MockTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
 	return nil, nil
 }
 

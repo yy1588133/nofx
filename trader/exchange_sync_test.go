@@ -1,12 +1,13 @@
 package trader
 
 import (
-	"database/sql"
 	"nofx/store"
 	"testing"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // TestScenario represents a trading scenario to test
@@ -116,11 +117,12 @@ func runStandardTests(t *testing.T, exchangeName string) {
 	for _, scenario := range scenarios {
 		t.Run(scenario.Name, func(t *testing.T) {
 			// Setup database
-			db, err := sql.Open("sqlite3", ":memory:")
+			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+				Logger: logger.Default.LogMode(logger.Silent),
+			})
 			if err != nil {
 				t.Fatalf("Failed to create test database: %v", err)
 			}
-			defer db.Close()
 
 			positionStore := store.NewPositionStore(db)
 			if err := positionStore.InitTables(); err != nil {
@@ -135,13 +137,13 @@ func runStandardTests(t *testing.T, exchangeName string) {
 
 			// Process all trades
 			for i, trade := range scenario.Trades {
-				err := posBuilder.ProcessTrade(
-					traderID, exchangeID, exchangeType,
-					trade.Symbol, trade.Side, trade.Action,
-					trade.Quantity, trade.Price, trade.Fee, trade.RealizedPnL,
-					time.Now().Add(time.Duration(i)*time.Second),
-					"",
-				)
+								err := posBuilder.ProcessTrade(
+										traderID, exchangeID, exchangeType,
+										trade.Symbol, trade.Side, trade.Action,
+										trade.Quantity, trade.Price, trade.Fee, trade.RealizedPnL,
+										time.Now().Add(time.Duration(i)*time.Second).UTC().UnixMilli(),
+										"",
+								)
 				if err != nil {
 					t.Fatalf("Failed to process trade %d (%s): %v", i, trade.Action, err)
 				}
@@ -199,11 +201,12 @@ func TestAllExchangesStandardScenarios(t *testing.T) {
 
 // TestPositionAccumulationBug tests that positions don't accumulate incorrectly
 func TestPositionAccumulationBug(t *testing.T) {
-	db, err := sql.Open("sqlite3", ":memory:")
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
 	if err != nil {
 		t.Fatalf("Failed to create test database: %v", err)
 	}
-	defer db.Close()
 
 	positionStore := store.NewPositionStore(db)
 	if err := positionStore.InitTables(); err != nil {
@@ -220,25 +223,25 @@ func TestPositionAccumulationBug(t *testing.T) {
 	// This tests that we don't accumulate positions incorrectly
 	for i := 0; i < 10; i++ {
 		// Open Long
-		err := posBuilder.ProcessTrade(
-			traderID, exchangeID, exchangeType,
-			"ETHUSDT", "LONG", "open_long",
-			0.1, 3500+float64(i*10), 0.5, 0,
-			time.Now().Add(time.Duration(i*2)*time.Second),
-			"",
-		)
+				err := posBuilder.ProcessTrade(
+					traderID, exchangeID, exchangeType,
+					"ETHUSDT", "LONG", "open_long",
+					0.1, 3500+float64(i*10), 0.5, 0,
+					time.Now().Add(time.Duration(i*2)*time.Second).UTC().UnixMilli(),
+					"",
+				)
 		if err != nil {
 			t.Fatalf("Failed to open long %d: %v", i, err)
 		}
 
 		// Close Long
-		err = posBuilder.ProcessTrade(
-			traderID, exchangeID, exchangeType,
-			"ETHUSDT", "LONG", "close_long",
-			0.1, 3600+float64(i*10), 0.5, 10,
-			time.Now().Add(time.Duration(i*2+1)*time.Second),
-			"",
-		)
+				err = posBuilder.ProcessTrade(
+					traderID, exchangeID, exchangeType,
+					"ETHUSDT", "LONG", "close_long",
+					0.1, 3600+float64(i*10), 0.5, 10,
+					time.Now().Add(time.Duration(i*2+1)*time.Second).UTC().UnixMilli(),
+					"",
+				)
 		if err != nil {
 			t.Fatalf("Failed to close long %d: %v", i, err)
 		}
@@ -283,11 +286,12 @@ func TestPositionAccumulationBug(t *testing.T) {
 
 // TestQuantityPrecision tests handling of quantity precision issues
 func TestQuantityPrecision(t *testing.T) {
-	db, err := sql.Open("sqlite3", ":memory:")
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
 	if err != nil {
 		t.Fatalf("Failed to create test database: %v", err)
 	}
-	defer db.Close()
 
 	positionStore := store.NewPositionStore(db)
 	if err := positionStore.InitTables(); err != nil {
@@ -301,26 +305,26 @@ func TestQuantityPrecision(t *testing.T) {
 	exchangeType := "test"
 
 	// Open position
-	err = posBuilder.ProcessTrade(
-		traderID, exchangeID, exchangeType,
-		"BTCUSDT", "LONG", "open_long",
-		0.01, 50000, 1.0, 0,
-		time.Now(),
-		"",
-	)
+		err = posBuilder.ProcessTrade(
+			traderID, exchangeID, exchangeType,
+			"BTCUSDT", "LONG", "open_long",
+			0.01, 50000, 1.0, 0,
+			time.Now().UTC().UnixMilli(),
+			"",
+		)
 	if err != nil {
 		t.Fatalf("Failed to open: %v", err)
 	}
 
 	// Close with slightly different quantity due to precision (0.00999999 vs 0.01)
 	// Should still close fully within tolerance
-	err = posBuilder.ProcessTrade(
-		traderID, exchangeID, exchangeType,
-		"BTCUSDT", "LONG", "close_long",
-		0.00999999, 51000, 1.0, 10,
-		time.Now().Add(time.Second),
-		"",
-	)
+		err = posBuilder.ProcessTrade(
+			traderID, exchangeID, exchangeType,
+			"BTCUSDT", "LONG", "close_long",
+			0.00999999, 51000, 1.0, 10,
+			time.Now().Add(time.Second).UTC().UnixMilli(),
+			"",
+		)
 	if err != nil {
 		t.Fatalf("Failed to close: %v", err)
 	}

@@ -18,7 +18,7 @@ import {
   calculateBollingerBands,
   type Kline,
 } from '../utils/indicators'
-import { Settings, TrendingUp, BarChart2 } from 'lucide-react'
+import { Settings, BarChart2 } from 'lucide-react'
 
 // 订单接口定义
 interface OrderMarker {
@@ -29,6 +29,19 @@ interface OrderMarker {
   action: 'open' | 'close'
   pnl?: number
   symbol: string
+}
+
+// 挂单接口定义 (交易所的止盈止损订单)
+interface OpenOrder {
+  order_id: string
+  symbol: string
+  side: string          // BUY/SELL
+  position_side: string // LONG/SHORT
+  type: string          // LIMIT/STOP_MARKET/TAKE_PROFIT_MARKET
+  price: number         // 限价单价格
+  stop_price: number    // 触发价格 (止损/止盈)
+  quantity: number
+  status: string
 }
 
 interface AdvancedChartProps {
@@ -49,17 +62,37 @@ interface IndicatorConfig {
   params?: any
 }
 
-// 热门币种
-const POPULAR_SYMBOLS = [
-  'BTCUSDT',
-  'ETHUSDT',
-  'SOLUSDT',
-  'BNBUSDT',
-  'XRPUSDT',
-  'DOGEUSDT',
-  'ADAUSDT',
-  'AVAXUSDT',
-]
+// 获取成交额货币单位
+const getQuoteUnit = (exchange: string): string => {
+  if (['alpaca'].includes(exchange)) {
+    return 'USD'
+  }
+  if (['forex', 'metals'].includes(exchange)) {
+    return '' // 外汇/贵金属没有真实成交量
+  }
+  return 'USDT' // 加密货币默认 USDT
+}
+
+// 获取成交量数量单位
+const getBaseUnit = (exchange: string, symbol: string): string => {
+  if (['alpaca'].includes(exchange)) {
+    return '股'
+  }
+  if (['forex', 'metals'].includes(exchange)) {
+    return ''
+  }
+  // 加密货币：从 symbol 提取基础资产
+  const base = symbol.replace(/USDT$|USD$|BUSD$/, '')
+  return base || '个'
+}
+
+// 格式化大数字
+const formatVolume = (value: number): string => {
+  if (value >= 1e9) return (value / 1e9).toFixed(2) + 'B'
+  if (value >= 1e6) return (value / 1e6).toFixed(2) + 'M'
+  if (value >= 1e3) return (value / 1e3).toFixed(2) + 'K'
+  return value.toFixed(2)
+}
 
 export function AdvancedChart({
   symbol = 'BTCUSDT',
@@ -67,9 +100,12 @@ export function AdvancedChart({
   traderID,
   height = 550,
   exchange = 'binance', // 默认使用 binance
-  onSymbolChange,
+  onSymbolChange: _onSymbolChange, // Available for future use
 }: AdvancedChartProps) {
+  void _onSymbolChange // Prevent unused warning
   const { language } = useLanguage()
+  const quoteUnit = getQuoteUnit(exchange)
+  const baseUnit = getBaseUnit(exchange, symbol)
   const chartContainerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -77,6 +113,8 @@ export function AdvancedChart({
   const indicatorSeriesRef = useRef<Map<string, ISeriesApi<any>>>(new Map())
   const seriesMarkersRef = useRef<any>(null) // Markers primitive for v5
   const currentMarkersDataRef = useRef<any[]>([]) // 存储当前的标记数据
+  const klineDataRef = useRef<Map<number, { volume: number; quoteVolume: number }>>(new Map()) // 存储 kline 额外数据
+  const priceLinesRef = useRef<any[]>([]) // 存储挂单价格线
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -85,6 +123,17 @@ export function AdvancedChart({
   const isInitialLoadRef = useRef(true) // 跟踪是否为初始加载
   const [tooltipData, setTooltipData] = useState<any>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
+
+  // 行情统计数据（当前K线）
+  const [marketStats, setMarketStats] = useState<{
+    price: number
+    priceChange: number
+    priceChangePercent: number
+    high: number
+    low: number
+    volume: number      // 数量（BTC/股数）
+    quoteVolume: number // 成交额（USDT/USD）
+  } | null>(null)
 
   // 指标配置
   const [indicators, setIndicators] = useState<IndicatorConfig[]>([
@@ -109,14 +158,28 @@ export function AdvancedChart({
         throw new Error('Failed to fetch kline data')
       }
 
-      return result.data.map((candle: any) => ({
+      // 转换数据格式
+      const rawData = result.data.map((candle: any) => ({
         time: Math.floor(candle.openTime / 1000) as UTCTimestamp,
         open: candle.open,
         high: candle.high,
         low: candle.low,
         close: candle.close,
-        volume: candle.volume,
+        volume: candle.volume,           // 数量（BTC/股数）
+        quoteVolume: candle.quoteVolume, // 成交额（USDT/USD）
       }))
+
+      // 按时间排序并去重（lightweight-charts 要求数据按时间升序且无重复）
+      const sortedData = rawData.sort((a: any, b: any) => a.time - b.time)
+      const dedupedData = sortedData.filter((item: any, index: number, arr: any[]) =>
+        index === 0 || item.time !== arr[index - 1].time
+      )
+
+      if (rawData.length !== dedupedData.length) {
+        console.warn('[AdvancedChart] Removed', rawData.length - dedupedData.length, 'duplicate klines')
+      }
+
+      return dedupedData
     } catch (err) {
       console.error('[AdvancedChart] Error fetching kline:', err)
       throw err
@@ -130,9 +193,15 @@ export function AdvancedChart({
       return 0
     }
 
-    // 如果已经是数字（Unix 时间戳），直接返回
+    // 如果已经是数字（Unix 时间戳）
     if (typeof time === 'number') {
-      console.log('[AdvancedChart] ✅ Unix timestamp:', time, '(', new Date(time * 1000).toISOString(), ')')
+      // 判断是毫秒还是秒：如果大于 10^12 则认为是毫秒（2001年之后的毫秒时间戳）
+      if (time > 1000000000000) {
+        const seconds = Math.floor(time / 1000)
+        console.log('[AdvancedChart] ✅ Unix timestamp (ms→s):', time, '→', seconds, '(', new Date(time).toISOString(), ')')
+        return seconds
+      }
+      console.log('[AdvancedChart] ✅ Unix timestamp (s):', time, '(', new Date(time * 1000).toISOString(), ')')
       return time
     }
 
@@ -172,8 +241,8 @@ export function AdvancedChart({
   const fetchOrders = async (traderID: string, symbol: string): Promise<OrderMarker[]> => {
     try {
       console.log('[AdvancedChart] Fetching orders for trader:', traderID, 'symbol:', symbol)
-      // 获取已成交的订单，限制50条避免标记太多重叠
-      const result = await httpClient.get(`/api/orders?trader_id=${traderID}&symbol=${symbol}&status=FILLED&limit=50`)
+      // 获取已成交的订单，增加到200条以显示更多历史订单
+      const result = await httpClient.get(`/api/orders?trader_id=${traderID}&symbol=${symbol}&status=FILLED&limit=200`)
 
       console.log('[AdvancedChart] Orders API response:', result)
 
@@ -252,13 +321,33 @@ export function AdvancedChart({
     }
   }
 
+  // 获取交易所挂单 (止盈止损订单)
+  const fetchOpenOrders = async (traderID: string, symbol: string): Promise<OpenOrder[]> => {
+    try {
+      console.log('[AdvancedChart] Fetching open orders for trader:', traderID, 'symbol:', symbol)
+      const result = await httpClient.get(`/api/open-orders?trader_id=${traderID}&symbol=${symbol}`)
+
+      console.log('[AdvancedChart] Open orders API response:', result)
+
+      if (!result.success || !result.data) {
+        console.warn('[AdvancedChart] No open orders found')
+        return []
+      }
+
+      return result.data as OpenOrder[]
+    } catch (err) {
+      console.error('[AdvancedChart] Error fetching open orders:', err)
+      return []
+    }
+  }
+
   // 初始化图表
   useEffect(() => {
     if (!chartContainerRef.current) return
 
     const chart = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth,
-      height: height,
+      width: chartContainerRef.current.clientWidth || 800,
+      height: chartContainerRef.current.clientHeight || height,
       layout: {
         background: { color: '#0B0E11' },
         textColor: '#B7BDC6',
@@ -358,16 +447,16 @@ export function AdvancedChart({
     })
     volumeSeriesRef.current = volumeSeries as any
 
-    // 响应式调整
-    const handleResize = () => {
-      if (chartContainerRef.current && chartRef.current) {
-        chartRef.current.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-        })
-      }
-    }
+    // 响应式调整 (ResizeObserver)
+    const resizeObserver = new ResizeObserver((entries) => {
+      if (entries.length === 0 || !entries[0].contentRect) return
+      const { width, height } = entries[0].contentRect
+      chart.applyOptions({ width, height })
+    })
 
-    window.addEventListener('resize', handleResize)
+    if (chartContainerRef.current) {
+      resizeObserver.observe(chartContainerRef.current)
+    }
 
     // 监听鼠标移动，显示 OHLC 信息
     chart.subscribeCrosshairMove((param) => {
@@ -383,33 +472,54 @@ export function AdvancedChart({
       }
 
       const candleData = data as any
+
+      // 从存储的数据中获取 volume 和 quoteVolume
+      const klineExtra = klineDataRef.current.get(param.time as number) || { volume: 0, quoteVolume: 0 }
+
       setTooltipData({
         time: param.time,
         open: candleData.open,
         high: candleData.high,
         low: candleData.low,
         close: candleData.close,
+        volume: klineExtra.volume,
+        quoteVolume: klineExtra.quoteVolume,
         x: param.point.x,
         y: param.point.y,
       })
     })
 
     return () => {
-      window.removeEventListener('resize', handleResize)
+      resizeObserver.disconnect()
       chart.remove()
     }
-  }, [height])
+  }, []) // Chart is created once, ResizeObserver handles dimension changes
+
 
   // 加载数据和指标
   useEffect(() => {
     // 当 symbol 或 interval 改变时，重置初始加载标志（以便自动适配新数据）
     isInitialLoadRef.current = true
 
-    const loadData = async () => {
+    // 清除旧的标记数据，避免旧数据影响新图表
+    currentMarkersDataRef.current = []
+    if (seriesMarkersRef.current) {
+      try {
+        seriesMarkersRef.current.setMarkers([])
+      } catch (e) {
+        // 忽略错误，稍后会重新创建
+      }
+      seriesMarkersRef.current = null
+    }
+
+    const loadData = async (isRefresh = false) => {
       if (!candlestickSeriesRef.current) return
 
-      console.log('[AdvancedChart] Loading data for', symbol, interval)
-      setLoading(true)
+      console.log('[AdvancedChart] Loading data for', symbol, interval, isRefresh ? '(refresh)' : '')
+      // 只在首次加载时显示 loading，刷新时不显示避免闪烁
+      if (!isRefresh) {
+        setLoading(true)
+      }
       setError(null)
 
       try {
@@ -417,6 +527,43 @@ export function AdvancedChart({
         const klineData = await fetchKlineData(symbol, interval)
         console.log('[AdvancedChart] Loaded', klineData.length, 'klines')
         candlestickSeriesRef.current.setData(klineData)
+
+        // 存储 volume/quoteVolume 数据供 tooltip 使用
+        klineDataRef.current.clear()
+        klineData.forEach((k: any) => {
+          klineDataRef.current.set(k.time, { volume: k.volume || 0, quoteVolume: k.quoteVolume || 0 })
+        })
+
+        // 1.5 计算行情统计数据
+        if (klineData.length > 1) {
+          const latestKline = klineData[klineData.length - 1]
+          const prevKline = klineData[klineData.length - 2]
+
+          // 涨跌幅：当前K线收盘价 vs 前一根K线收盘价
+          const priceChange = latestKline.close - prevKline.close
+          const priceChangePercent = (priceChange / prevKline.close) * 100
+
+          setMarketStats({
+            price: latestKline.close,
+            priceChange,
+            priceChangePercent,
+            high: latestKline.high,
+            low: latestKline.low,
+            volume: latestKline.volume || 0,
+            quoteVolume: latestKline.quoteVolume || 0,
+          })
+        } else if (klineData.length === 1) {
+          const latestKline = klineData[0]
+          setMarketStats({
+            price: latestKline.close,
+            priceChange: 0,
+            priceChangePercent: 0,
+            high: latestKline.high,
+            low: latestKline.low,
+            volume: latestKline.volume || 0,
+            quoteVolume: latestKline.quoteVolume || 0,
+          })
+        }
 
         // 2. 显示成交量
         if (volumeSeriesRef.current) {
@@ -474,15 +621,8 @@ export function AdvancedChart({
               return klineTimes[left]
             }
 
-            // 过滤并对齐订单到 K 线时间
-            const markers: Array<{
-              time: Time
-              position: 'belowBar'
-              color: string
-              shape: 'circle'
-              text: string
-              size: number
-            }> = []
+            // 按 K 线时间分组统计订单
+            const ordersByCandle = new Map<number, { buys: number; sells: number }>()
 
             orders.forEach(order => {
               // 使用二分查找找到对应的 K 线蜡烛时间
@@ -494,15 +634,48 @@ export function AdvancedChart({
                 return
               }
 
-              const isBuy = order.rawSide === 'buy'
-              markers.push({
-                time: candleTime as Time,
-                position: 'belowBar' as const,
-                color: isBuy ? '#0ECB81' : '#F6465D',
-                shape: 'circle' as const,
-                text: isBuy ? 'B' : 'S',
-                size: 1,
-              })
+              const existing = ordersByCandle.get(candleTime) || { buys: 0, sells: 0 }
+              if (order.rawSide === 'buy') {
+                existing.buys++
+              } else {
+                existing.sells++
+              }
+              ordersByCandle.set(candleTime, existing)
+            })
+
+            // 为每个有订单的 K 线创建标记
+            const markers: Array<{
+              time: Time
+              position: 'belowBar' | 'aboveBar'
+              color: string
+              shape: 'circle'
+              text: string
+              size: number
+            }> = []
+
+            ordersByCandle.forEach((counts, candleTime) => {
+              // 显示买入标记（绿色，在K线下方）
+              if (counts.buys > 0) {
+                markers.push({
+                  time: candleTime as Time,
+                  position: 'belowBar' as const,
+                  color: '#0ECB81',
+                  shape: 'circle' as const,
+                  text: counts.buys > 1 ? `B${counts.buys}` : 'B',
+                  size: 1,
+                })
+              }
+              // 显示卖出标记（红色，在K线上方）
+              if (counts.sells > 0) {
+                markers.push({
+                  time: candleTime as Time,
+                  position: 'aboveBar' as const,
+                  color: '#F6465D',
+                  shape: 'circle' as const,
+                  text: counts.sells > 1 ? `S${counts.sells}` : 'S',
+                  size: 1,
+                })
+              }
             })
 
             // 按时间排序（lightweight-charts 要求标记按时间顺序）
@@ -561,12 +734,93 @@ export function AdvancedChart({
       }
     }
 
-    loadData()
+    loadData(false) // 首次加载
 
     // 实时自动刷新 (5秒更新一次)
-    const refreshInterval = setInterval(loadData, 5000)
+    const refreshInterval = setInterval(() => loadData(true), 5000)
     return () => clearInterval(refreshInterval)
-  }, [symbol, interval, traderID, indicators])
+  }, [symbol, interval, traderID, exchange])
+
+  // 单独刷新挂单价格线 (60秒刷新一次，避免频繁调用交易所API)
+  useEffect(() => {
+    if (!traderID || !candlestickSeriesRef.current) return
+
+    // 加载挂单并显示价格线
+    const loadOpenOrders = async () => {
+      try {
+        // 先清除旧的价格线
+        priceLinesRef.current.forEach(line => {
+          try {
+            candlestickSeriesRef.current?.removePriceLine(line)
+          } catch (e) {
+            // 忽略清除错误
+          }
+        })
+        priceLinesRef.current = []
+
+        const openOrders = await fetchOpenOrders(traderID, symbol)
+        console.log('[AdvancedChart] Open orders for price lines:', openOrders)
+
+        if (openOrders.length > 0 && candlestickSeriesRef.current) {
+          openOrders.forEach(order => {
+            // 获取触发价格 (止损/止盈用 stop_price，限价单用 price)
+            const linePrice = order.stop_price > 0 ? order.stop_price : order.price
+            if (linePrice <= 0) return
+
+            // 判断订单类型
+            const isStopLoss = order.type.includes('STOP') || order.type.includes('SL')
+            const isTakeProfit = order.type.includes('TAKE_PROFIT') || order.type.includes('TP')
+            const isLimit = order.type === 'LIMIT'
+
+            // 设置价格线样式
+            let lineColor = '#F0B90B' // 默认黄色
+            const lineStyle = 2 // 虚线
+            let title = ''
+
+            if (isStopLoss) {
+              lineColor = '#F6465D' // 红色 - 止损
+              title = `SL ${order.quantity}`
+            } else if (isTakeProfit) {
+              lineColor = '#0ECB81' // 绿色 - 止盈
+              title = `TP ${order.quantity}`
+            } else if (isLimit) {
+              lineColor = '#F0B90B' // 黄色 - 限价单
+              title = `Limit ${order.side} ${order.quantity}`
+            } else {
+              title = `${order.type} ${order.quantity}`
+            }
+
+            const priceLine = candlestickSeriesRef.current?.createPriceLine({
+              price: linePrice,
+              color: lineColor,
+              lineWidth: 1,
+              lineStyle: lineStyle,
+              axisLabelVisible: true,
+              title: title,
+            })
+
+            if (priceLine) {
+              priceLinesRef.current.push(priceLine)
+            }
+          })
+          console.log('[AdvancedChart] ✅ Created', priceLinesRef.current.length, 'price lines for pending orders')
+        }
+      } catch (err) {
+        console.error('[AdvancedChart] Error loading open orders:', err)
+      }
+    }
+
+    // 初始加载 (延迟1秒等待图表初始化完成)
+    const initialTimeout = setTimeout(loadOpenOrders, 1000)
+
+    // 60秒刷新一次挂单
+    const openOrdersInterval = setInterval(loadOpenOrders, 60000)
+
+    return () => {
+      clearTimeout(initialTimeout)
+      clearInterval(openOrdersInterval)
+    }
+  }, [symbol, traderID])
 
   // 单独处理订单标记的显示/隐藏，避免重新加载数据
   useEffect(() => {
@@ -661,118 +915,98 @@ export function AdvancedChart({
         borderRadius: '12px',
         overflow: 'hidden',
         border: '1px solid rgba(43, 49, 57, 0.5)',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
       }}
     >
-      {/* 标题栏 - 专业化设计 */}
+      {/* Compact Professional Header */}
       <div
-        className="px-4 py-2.5 space-y-2"
-        style={{ borderBottom: '1px solid #2B3139', background: 'linear-gradient(180deg, #1A1E23 0%, #0B0E11 100%)' }}
+        className="flex items-center justify-between px-4 py-2"
+        style={{ borderBottom: '1px solid rgba(43, 49, 57, 0.6)', background: '#0D1117', flexShrink: 0 }}
       >
-        {/* 第一行：标题和控制按钮 */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <TrendingUp className="w-5 h-5 text-yellow-400" />
-            <h3 className="text-base font-bold" style={{ color: '#F0B90B' }}>
-              {symbol}
-            </h3>
-            <span className="text-xs px-2 py-0.5 rounded" style={{ background: '#2B3139', color: '#848E9C' }}>
-              {interval}
-            </span>
-            {/* 交易所标识 */}
-            <span
-              className="text-xs px-2 py-0.5 rounded font-medium uppercase"
-              style={{
-                background: exchange === 'binance' ? 'rgba(243, 186, 47, 0.15)' :
-                           exchange === 'bybit' ? 'rgba(247, 147, 26, 0.15)' :
-                           exchange === 'okx' ? 'rgba(0, 180, 255, 0.15)' :
-                           exchange === 'bitget' ? 'rgba(0, 212, 170, 0.15)' :
-                           exchange === 'hyperliquid' ? 'rgba(80, 227, 194, 0.15)' :
-                           exchange === 'aster' ? 'rgba(138, 43, 226, 0.15)' :
-                           'rgba(255, 255, 255, 0.1)',
-                color: exchange === 'binance' ? '#F3BA2F' :
-                       exchange === 'bybit' ? '#F7931A' :
-                       exchange === 'okx' ? '#00B4FF' :
-                       exchange === 'bitget' ? '#00D4AA' :
-                       exchange === 'hyperliquid' ? '#50E3C2' :
-                       exchange === 'aster' ? '#8A2BE2' :
-                       '#848E9C',
-                border: `1px solid ${
-                  exchange === 'binance' ? 'rgba(243, 186, 47, 0.3)' :
-                  exchange === 'bybit' ? 'rgba(247, 147, 26, 0.3)' :
-                  exchange === 'okx' ? 'rgba(0, 180, 255, 0.3)' :
-                  exchange === 'bitget' ? 'rgba(0, 212, 170, 0.3)' :
-                  exchange === 'hyperliquid' ? 'rgba(80, 227, 194, 0.3)' :
-                  exchange === 'aster' ? 'rgba(138, 43, 226, 0.3)' :
-                  'rgba(255, 255, 255, 0.2)'
-                }`
-              }}
-              title={['bitget', 'lighter'].includes(exchange?.toLowerCase() || '')
-                ? 'Data source: Binance (fallback)' : undefined}
-            >
-              {exchange}
-              {['bitget', 'lighter'].includes(exchange?.toLowerCase() || '') && (
-                <span className="ml-1 text-[9px] opacity-60">*</span>
-              )}
-            </span>
-          </div>
-
+        {/* Left: Symbol Info + Price */}
+        <div className="flex items-center gap-4">
+          {/* Symbol & Interval */}
           <div className="flex items-center gap-2">
-            {loading && (
-              <div className="text-xs px-2 py-1 rounded" style={{ background: '#2B3139', color: '#F0B90B' }}>
-                {language === 'zh' ? '更新中...' : 'Updating...'}
-              </div>
-            )}
-            <button
-              onClick={() => setShowIndicatorPanel(!showIndicatorPanel)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+            <span className="text-sm font-bold text-white">{symbol}</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#1F2937] text-gray-400">{interval}</span>
+            <span
+              className="text-[10px] px-1.5 py-0.5 rounded font-medium uppercase"
               style={{
-                background: showIndicatorPanel ? 'rgba(240, 185, 11, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-                color: showIndicatorPanel ? '#F0B90B' : '#848E9C',
-                border: `1px solid ${showIndicatorPanel ? 'rgba(240, 185, 11, 0.3)' : '#2B3139'}`,
+                background: exchange === 'hyperliquid' ? 'rgba(80, 227, 194, 0.1)' : 'rgba(243, 186, 47, 0.1)',
+                color: exchange === 'hyperliquid' ? '#50E3C2' : '#F3BA2F',
               }}
             >
-              <Settings className="w-3.5 h-3.5" />
-              <span>{language === 'zh' ? '指标' : 'Indicators'}</span>
-            </button>
-
-            {/* 订单标记开关 */}
-            <button
-              onClick={() => setShowOrderMarkers(!showOrderMarkers)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
-              style={{
-                background: showOrderMarkers ? 'rgba(240, 185, 11, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-                color: showOrderMarkers ? '#F0B90B' : '#848E9C',
-                border: `1px solid ${showOrderMarkers ? 'rgba(240, 185, 11, 0.3)' : '#2B3139'}`,
-              }}
-              title={language === 'zh' ? '切换订单标记显示' : 'Toggle Order Markers'}
-            >
-              <span className="font-bold text-[11px]">B/S</span>
-            </button>
-          </div>
-        </div>
-
-        {/* 第二行：热门币种快速选择 */}
-        {onSymbolChange && (
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-medium mr-1" style={{ color: '#848E9C' }}>
-              {language === 'zh' ? '快速选择:' : 'Quick:'}
+              {exchange?.toUpperCase()}
             </span>
-            {POPULAR_SYMBOLS.map((sym) => (
-              <button
-                key={sym}
-                onClick={() => onSymbolChange(sym)}
-                className="px-2 py-1 rounded text-[11px] font-medium transition-all"
+          </div>
+
+          {/* Price Display */}
+          {marketStats && (
+            <div className="flex items-center gap-3 pl-3 border-l border-[#2B3139]">
+              <span
+                className="text-base font-bold tabular-nums"
+                style={{ color: marketStats.priceChange >= 0 ? '#10B981' : '#EF4444' }}
+              >
+                {marketStats.price.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: exchange === 'forex' || exchange === 'metals' ? 4 : 2
+                })}
+              </span>
+              <span
+                className="text-xs font-medium px-1.5 py-0.5 rounded tabular-nums"
                 style={{
-                  background: symbol === sym ? 'rgba(240, 185, 11, 0.2)' : 'rgba(43, 49, 57, 0.5)',
-                  color: symbol === sym ? '#F0B90B' : '#848E9C',
-                  border: `1px solid ${symbol === sym ? 'rgba(240, 185, 11, 0.4)' : 'transparent'}`,
+                  background: marketStats.priceChange >= 0 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                  color: marketStats.priceChange >= 0 ? '#10B981' : '#EF4444',
                 }}
               >
-                {sym.replace('USDT', '')}
-              </button>
-            ))}
-          </div>
-        )}
+                {marketStats.priceChange >= 0 ? '+' : ''}{marketStats.priceChangePercent.toFixed(2)}%
+              </span>
+
+              {/* Compact H/L */}
+              <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                <span>H <span className="text-gray-300">{marketStats.high.toFixed(2)}</span></span>
+                <span>L <span className="text-gray-300">{marketStats.low.toFixed(2)}</span></span>
+                {marketStats.volume > 0 && baseUnit && (
+                  <span>Vol <span className="text-gray-300">{formatVolume(marketStats.volume)}</span></span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right: Controls */}
+        <div className="flex items-center gap-1.5">
+          {loading && (
+            <span className="text-[10px] text-yellow-400 animate-pulse mr-2">
+              {language === 'zh' ? '更新中...' : 'Updating...'}
+            </span>
+          )}
+          <button
+            onClick={() => setShowIndicatorPanel(!showIndicatorPanel)}
+            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-all"
+            style={{
+              background: showIndicatorPanel ? 'rgba(96, 165, 250, 0.15)' : 'transparent',
+              color: showIndicatorPanel ? '#60A5FA' : '#6B7280',
+            }}
+          >
+            <Settings className="w-3 h-3" />
+            <span>{language === 'zh' ? '指标' : 'Indicators'}</span>
+          </button>
+
+          <button
+            onClick={() => setShowOrderMarkers(!showOrderMarkers)}
+            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-all"
+            style={{
+              background: showOrderMarkers ? 'rgba(16, 185, 129, 0.15)' : 'transparent',
+              color: showOrderMarkers ? '#10B981' : '#6B7280',
+            }}
+            title={language === 'zh' ? '订单标记' : 'Order Markers'}
+          >
+            <span>B/S</span>
+          </button>
+        </div>
       </div>
 
       {/* 指标面板 - 专业化设计 */}
@@ -846,8 +1080,8 @@ export function AdvancedChart({
       )}
 
       {/* 图表容器 */}
-      <div style={{ position: 'relative' }}>
-        <div ref={chartContainerRef} />
+      <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+        <div ref={chartContainerRef} style={{ height: '100%', width: '100%' }} />
 
         {/* OHLC Tooltip */}
         {tooltipData && (
@@ -895,6 +1129,24 @@ export function AdvancedChart({
               }}>
                 {tooltipData.close?.toFixed(2)}
               </span>
+
+              {tooltipData.volume > 0 && baseUnit && (
+                <>
+                  <span style={{ color: '#848E9C' }}>V({baseUnit}):</span>
+                  <span style={{ color: '#3B82F6', fontWeight: '500' }}>
+                    {formatVolume(tooltipData.volume)}
+                  </span>
+                </>
+              )}
+
+              {tooltipData.quoteVolume > 0 && quoteUnit && (
+                <>
+                  <span style={{ color: '#848E9C' }}>V({quoteUnit}):</span>
+                  <span style={{ color: '#3B82F6', fontWeight: '500' }}>
+                    {formatVolume(tooltipData.quoteVolume)}
+                  </span>
+                </>
+              )}
             </div>
           </div>
         )}

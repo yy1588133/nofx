@@ -1,13 +1,14 @@
 package trader
 
 import (
-	"database/sql"
 	"math"
 	"nofx/store"
 	"testing"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // TestHyperliquidOrderDirectionParsing tests Dir field parsing
@@ -75,11 +76,12 @@ func TestHyperliquidOrderDirectionParsing(t *testing.T) {
 // TestHyperliquidPositionBuilding tests the complete flow of position building
 func TestHyperliquidPositionBuilding(t *testing.T) {
 	// Setup in-memory database
-	db, err := sql.Open("sqlite3", ":memory:")
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
 	if err != nil {
 		t.Fatalf("Failed to create test database: %v", err)
 	}
-	defer db.Close()
 
 	// Initialize stores
 	positionStore := store.NewPositionStore(db)
@@ -101,7 +103,7 @@ func TestHyperliquidPositionBuilding(t *testing.T) {
 			traderID, exchangeID, exchangeType,
 			symbol, "LONG", "open_long",
 			0.1, 3500, 0.5, 0,
-			time.Now(), "order-1",
+			time.Now().UTC().UnixMilli(), "order-1",
 		)
 		if err != nil {
 			t.Fatalf("Failed to process open long: %v", err)
@@ -124,7 +126,7 @@ func TestHyperliquidPositionBuilding(t *testing.T) {
 			traderID, exchangeID, exchangeType,
 			symbol, "LONG", "close_long",
 			0.1, 3600, 0.5, 10.0, // PnL = (3600-3500)*0.1 = 10
-			time.Now(), "order-2",
+			time.Now().UTC().UnixMilli(), "order-2",
 		)
 		if err != nil {
 			t.Fatalf("Failed to process close long: %v", err)
@@ -150,7 +152,7 @@ func TestHyperliquidPositionBuilding(t *testing.T) {
 			traderID, exchangeID, exchangeType,
 			symbol, "SHORT", "open_short",
 			0.05, 3500, 0.25, 0,
-			time.Now(), "order-3",
+			time.Now().UTC().UnixMilli(), "order-3",
 		)
 		if err != nil {
 			t.Fatalf("Failed to process open short: %v", err)
@@ -174,7 +176,7 @@ func TestHyperliquidPositionBuilding(t *testing.T) {
 			traderID, exchangeID, exchangeType,
 			symbol, "SHORT", "close_short",
 			0.05, 3400, 0.25, 5.0, // PnL = (3500-3400)*0.05 = 5
-			time.Now(), "order-4",
+			time.Now().UTC().UnixMilli(), "order-4",
 		)
 		if err != nil {
 			t.Fatalf("Failed to process close short: %v", err)
@@ -203,7 +205,7 @@ func TestHyperliquidPositionBuilding(t *testing.T) {
 			traderID, exchangeID, exchangeType,
 			symbol, "LONG", "open_long",
 			0.1, 3500, 0.5, 0,
-			time.Now(), "order-5",
+			time.Now().UTC().UnixMilli(), "order-5",
 		)
 		if err != nil {
 			t.Fatalf("Failed to process first open: %v", err)
@@ -214,7 +216,7 @@ func TestHyperliquidPositionBuilding(t *testing.T) {
 			traderID, exchangeID, exchangeType,
 			symbol, "LONG", "open_long",
 			0.1, 3600, 0.5, 0,
-			time.Now(), "order-6",
+			time.Now().UTC().UnixMilli(), "order-6",
 		)
 		if err != nil {
 			t.Fatalf("Failed to process add position: %v", err)
@@ -241,7 +243,7 @@ func TestHyperliquidPositionBuilding(t *testing.T) {
 			traderID, exchangeID, exchangeType,
 			symbol, "LONG", "close_long",
 			0.2, 3700, 1.0, 30.0,
-			time.Now(), "order-7",
+			time.Now().UTC().UnixMilli(), "order-7",
 		)
 		if err != nil {
 			t.Fatalf("Failed to process close: %v", err)
@@ -267,7 +269,7 @@ func TestHyperliquidPositionBuilding(t *testing.T) {
 			traderID, exchangeID, exchangeType,
 			symbol, "LONG", "open_long",
 			1.0, 3500, 2.0, 0,
-			time.Now(), "order-8",
+			time.Now().UTC().UnixMilli(), "order-8",
 		)
 		if err != nil {
 			t.Fatalf("Failed to process open: %v", err)
@@ -278,7 +280,7 @@ func TestHyperliquidPositionBuilding(t *testing.T) {
 			traderID, exchangeID, exchangeType,
 			symbol, "LONG", "close_long",
 			0.3, 3600, 0.6, 30.0,
-			time.Now(), "order-9",
+			time.Now().UTC().UnixMilli(), "order-9",
 		)
 		if err != nil {
 			t.Fatalf("Failed to process partial close: %v", err)
@@ -304,11 +306,12 @@ func TestHyperliquidPositionBuilding(t *testing.T) {
 // TestHyperliquidBugScenario tests the exact bug we fixed
 func TestHyperliquidBugScenario(t *testing.T) {
 	// Setup database
-	db, err := sql.Open("sqlite3", ":memory:")
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
 	if err != nil {
 		t.Fatalf("Failed to create test database: %v", err)
 	}
-	defer db.Close()
 
 	positionStore := store.NewPositionStore(db)
 	if err := positionStore.InitTables(); err != nil {
@@ -348,7 +351,7 @@ func TestHyperliquidBugScenario(t *testing.T) {
 			traderID, exchangeID, exchangeType,
 			trade.symbol, trade.side, trade.action,
 			trade.qty, trade.price, trade.fee, trade.pnl,
-			time.Now().Add(time.Duration(i)*time.Second),
+			time.Now().Add(time.Duration(i)*time.Second).UTC().UnixMilli(),
 			"",
 		)
 		if err != nil {

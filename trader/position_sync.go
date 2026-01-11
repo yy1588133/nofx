@@ -327,20 +327,24 @@ func (m *PositionSyncManager) findClosedPnLFromBinanceTrades(trader *FuturesTrad
 	logger.Infof("📊 Found %d closing trades for %s %s: qty=%.4f, exitPrice=%.6f, pnl=%.4f, fee=%.4f",
 		matchCount, pos.Symbol, pos.Side, totalQty, avgExitPrice, totalPnL, totalFee)
 
-	return &ClosedPnLRecord{
-		Symbol:      pos.Symbol,
-		Side:        posSide,
-		EntryPrice:  pos.EntryPrice,
-		ExitPrice:   avgExitPrice,
-		Quantity:    totalQty,
-		RealizedPnL: totalPnL,
-		Fee:         totalFee,
-		ExitTime:    latestExitTime,
-		EntryTime:   pos.EntryTime,
-		OrderID:     latestTradeID,
-		ExchangeID:  latestTradeID,
-		CloseType:   "unknown",
-	}
+		entryTime := time.Time{}
+		if pos.EntryTime > 0 {
+			entryTime = time.UnixMilli(pos.EntryTime).UTC()
+		}
+		return &ClosedPnLRecord{
+			Symbol:      pos.Symbol,
+			Side:        posSide,
+			EntryPrice:  pos.EntryPrice,
+			ExitPrice:   avgExitPrice,
+			Quantity:    totalQty,
+			RealizedPnL: totalPnL,
+			Fee:         totalFee,
+			ExitTime:    latestExitTime,
+			EntryTime:   entryTime,
+			OrderID:     latestTradeID,
+			ExchangeID:  latestTradeID,
+			CloseType:   "unknown",
+		}
 }
 
 // aggregateClosedRecords aggregates closed PnL records for a position
@@ -393,6 +397,10 @@ func (m *PositionSyncManager) aggregateClosedRecords(records []ClosedPnLRecord, 
 	logger.Infof("📊 Aggregated %d closing trades for %s %s: qty=%.4f, pnl=%.4f, fee=%.4f",
 		len(matchingRecords), pos.Symbol, pos.Side, totalQty, totalPnL, totalFee)
 
+	entryTime := time.Time{}
+	if pos.EntryTime > 0 {
+		entryTime = time.UnixMilli(pos.EntryTime).UTC()
+	}
 	return &ClosedPnLRecord{
 		Symbol:      pos.Symbol,
 		Side:        posSide,
@@ -402,7 +410,7 @@ func (m *PositionSyncManager) aggregateClosedRecords(records []ClosedPnLRecord, 
 		RealizedPnL: totalPnL,
 		Fee:         totalFee,
 		ExitTime:    latestExitTime,
-		EntryTime:   pos.EntryTime,
+		EntryTime:   entryTime,
 		OrderID:     latestOrderID,
 		ExchangeID:  latestExchangeID,
 		CloseType:   "unknown",
@@ -410,13 +418,6 @@ func (m *PositionSyncManager) aggregateClosedRecords(records []ClosedPnLRecord, 
 }
 
 // abs returns absolute value of float64
-func abs(x float64) float64 {
-	if x < 0 {
-		return -x
-	}
-	return x
-}
-
 // getOrCreateTrader Get or create trader instance
 func (m *PositionSyncManager) getOrCreateTrader(traderID string) (Trader, error) {
 	m.cacheMutex.RLock()
@@ -492,22 +493,22 @@ func (m *PositionSyncManager) createTrader(config *store.TraderFullConfig) (Trad
 	// Use exchange.ExchangeType to determine specific exchange, not exchange.ID (UUID) or exchange.Type (cex/dex)
 	switch exchange.ExchangeType {
 	case "binance":
-		return NewFuturesTrader(exchange.APIKey, exchange.SecretKey, config.Trader.UserID), nil
+		return NewFuturesTrader(exchange.APIKey.String(), exchange.SecretKey.String(), config.Trader.UserID), nil
 
 	case "bybit":
-		return NewBybitTrader(exchange.APIKey, exchange.SecretKey), nil
+		return NewBybitTrader(exchange.APIKey.String(), exchange.SecretKey.String()), nil
 
 	case "okx":
-		return NewOKXTrader(exchange.APIKey, exchange.SecretKey, exchange.Passphrase), nil
+		return NewOKXTrader(exchange.APIKey.String(), exchange.SecretKey.String(), exchange.Passphrase.String()), nil
 
 	case "bitget":
-		return NewBitgetTrader(exchange.APIKey, exchange.SecretKey, exchange.Passphrase), nil
+		return NewBitgetTrader(exchange.APIKey.String(), exchange.SecretKey.String(), exchange.Passphrase.String()), nil
 
 	case "hyperliquid":
-		return NewHyperliquidTrader(exchange.SecretKey, exchange.HyperliquidWalletAddr, exchange.Testnet)
+		return NewHyperliquidTrader(exchange.SecretKey.String(), exchange.HyperliquidWalletAddr, exchange.Testnet)
 
 	case "aster":
-		return NewAsterTrader(exchange.AsterUser, exchange.AsterSigner, exchange.AsterPrivateKey)
+		return NewAsterTrader(exchange.AsterUser, exchange.AsterSigner, exchange.AsterPrivateKey.String())
 
 	case "lighter":
 		if exchange.LighterWalletAddr == "" || exchange.LighterAPIKeyPrivateKey == "" {
@@ -516,7 +517,7 @@ func (m *PositionSyncManager) createTrader(config *store.TraderFullConfig) (Trad
 		// Lighter only supports mainnet
 		return NewLighterTraderV2(
 			exchange.LighterWalletAddr,
-			exchange.LighterAPIKeyPrivateKey,
+			exchange.LighterAPIKeyPrivateKey.String(),
 			exchange.LighterAPIKeyIndex,
 			false, // Always use mainnet for Lighter
 		)
@@ -683,19 +684,19 @@ func (m *PositionSyncManager) syncExternalPositions(traderID, exchangeID, exchan
 		// Generate unique exchange position ID
 		exchangePositionID := fmt.Sprintf("%s_%s_%d", symbol, normalizedSide, entryTime.UnixMilli())
 
-		newPos := &store.TraderPosition{
-			TraderID:           traderID,
-			ExchangeID:         exchangeID,
-			ExchangeType:       exchangeType,
-			ExchangePositionID: exchangePositionID,
-			Symbol:             symbol,
-			Side:               normalizedSide,
-			Quantity:           qty,
-			EntryPrice:         entryPrice,
-			EntryTime:          entryTime,
-			Leverage:           leverage,
-			Source:             "sync", // Mark as synced from exchange
-		}
+				newPos := &store.TraderPosition{
+					TraderID:           traderID,
+					ExchangeID:         exchangeID,
+					ExchangeType:       exchangeType,
+					ExchangePositionID: exchangePositionID,
+					Symbol:             symbol,
+					Side:               normalizedSide,
+					Quantity:           qty,
+					EntryPrice:         entryPrice,
+					EntryTime:          entryTime.UTC().UnixMilli(),
+					Leverage:           leverage,
+					Source:             "sync", // Mark as synced from exchange
+				}
 
 		if err := m.store.Position().CreateOpenPosition(newPos); err != nil {
 			logger.Infof("⚠️  Failed to create external position record: %v", err)
@@ -725,15 +726,15 @@ func (m *PositionSyncManager) syncClosedPositionsHistory(traderID, exchangeID, e
 	}
 
 	// Get last sync time from database
-	lastSyncTime, err := m.store.Position().GetLastClosedPositionTime(traderID)
-	if err != nil {
-		logger.Infof("⚠️  Failed to get last closed position time (ID: %s): %v", traderID, err)
-		// First sync: go back 90 days to get more history
-		lastSyncTime = time.Now().Add(-90 * 24 * time.Hour)
-	}
+		lastSyncTimeMs, err := m.store.Position().GetLastClosedPositionTime(traderID)
+		if err != nil {
+			logger.Infof("⚠️  Failed to get last closed position time (ID: %s): %v", traderID, err)
+			// First sync: go back 90 days to get more history
+			lastSyncTimeMs = time.Now().UTC().Add(-90 * 24 * time.Hour).UnixMilli()
+		}
 
-	// Subtract a small buffer to avoid missing positions at the boundary
-	startTime := lastSyncTime.Add(-1 * time.Minute)
+		// Subtract a small buffer to avoid missing positions at the boundary
+		startTime := time.UnixMilli(lastSyncTimeMs).UTC().Add(-1 * time.Minute)
 
 	// Pagination loop to get all records
 	const batchSize = 500
@@ -756,21 +757,21 @@ func (m *PositionSyncManager) syncClosedPositionsHistory(traderID, exchangeID, e
 		storeRecords := make([]store.ClosedPnLRecord, len(closedRecords))
 		var latestExitTime time.Time
 		for i, rec := range closedRecords {
-			storeRecords[i] = store.ClosedPnLRecord{
-				Symbol:      rec.Symbol,
-				Side:        rec.Side,
-				EntryPrice:  rec.EntryPrice,
-				ExitPrice:   rec.ExitPrice,
-				Quantity:    rec.Quantity,
-				RealizedPnL: rec.RealizedPnL,
-				Fee:         rec.Fee,
-				Leverage:    rec.Leverage,
-				EntryTime:   rec.EntryTime,
-				ExitTime:    rec.ExitTime,
-				OrderID:     rec.OrderID,
-				CloseType:   rec.CloseType,
-				ExchangeID:  rec.ExchangeID,
-			}
+				storeRecords[i] = store.ClosedPnLRecord{
+					Symbol:      rec.Symbol,
+					Side:        rec.Side,
+					EntryPrice:  rec.EntryPrice,
+					ExitPrice:   rec.ExitPrice,
+					Quantity:    rec.Quantity,
+					RealizedPnL: rec.RealizedPnL,
+					Fee:         rec.Fee,
+					Leverage:    rec.Leverage,
+					EntryTime:   rec.EntryTime.UTC().UnixMilli(),
+					ExitTime:    rec.ExitTime.UTC().UnixMilli(),
+					OrderID:     rec.OrderID,
+					CloseType:   rec.CloseType,
+					ExchangeID:  rec.ExchangeID,
+				}
 			// Track latest exit time for pagination
 			if rec.ExitTime.After(latestExitTime) {
 				latestExitTime = rec.ExitTime
