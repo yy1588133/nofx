@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+### 新增
+- 新增 Windows 一键重建部署脚本 `docker-redeploy.bat`（基于 Docker Compose，支持 `dev/stable/prod` 与 `--dry-run`）。
+
 ### 变更
 - 同步上游 `NoFxAiOS/nofx` 的 `dev` 分支最新提交到本地 `my-custom`，完成冲突解决与兼容性修复，并将结果推送到 fork。
 
