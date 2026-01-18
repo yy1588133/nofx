@@ -120,7 +120,7 @@ func (s *DecisionStore) initTables() error {
 			return nil
 		}
 	}
-	return s.db.AutoMigrate(&DecisionRecordDB{})
+	return autoMigrateCreateOnly(s.db, &DecisionRecordDB{})
 }
 
 // toRecord converts DB model to API struct

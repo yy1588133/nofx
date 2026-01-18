@@ -106,4 +106,3 @@ func TestAIModelStoreUpdate_LegacyProviderKey_CreatesUserScopedID_AndPreservesAP
 		t.Fatalf("expected API key to be preserved, got %q", model.APIKey.String())
 	}
 }
-

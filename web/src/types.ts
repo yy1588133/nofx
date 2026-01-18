@@ -125,6 +125,8 @@ export interface Exchange {
   secretKey?: string
   passphrase?: string            // OKX specific
   testnet?: boolean
+  // Paper Trading: 初始资金（仅 paper 类型可能出现；并非所有接口都会返回）
+  initial_balance?: number
   // Hyperliquid specific
   hyperliquidWalletAddr?: string
   // Aster specific
@@ -565,6 +567,15 @@ export interface RiskControlConfig {
   min_position_size: number;       // Min position size in USDT (CODE ENFORCED)
   min_risk_reward_ratio: number;   // Min take_profit / stop_loss ratio (AI guided)
   min_confidence: number;          // Min AI confidence to open position (AI guided)
+
+  // Min hold time after opening (minutes). 0 = disabled (CODE ENFORCED)
+  min_hold_minutes?: number;
+  // Cooldown after closing a position (minutes). 0 = disabled (CODE ENFORCED)
+  cooldown_after_close_minutes?: number;
+  // Min stop-loss distance from entry (%). 0 = disabled (CODE ENFORCED)
+  min_stop_loss_distance_pct?: number;
+  // Min take-profit distance multiplier vs estimated round-trip cost. 0 = disabled (CODE ENFORCED)
+  min_tp_cost_multiplier?: number;
 }
 
 // Debate Arena Types

@@ -26,6 +26,10 @@
 - `docker-compose.stable.yml`: 稳定版镜像（`stable` tag）
 - `docker-compose.prod.yml`: 最新版镜像（`latest` tag）
 
+### 构建与数据目录（重要）
+- 构建镜像时已通过 `.dockerignore` 忽略 `data/`，避免构建上下文过大导致构建缓慢或失败。
+- 运行时数据通过 compose volume 挂载 `./data:/app/data` 持久化，不依赖镜像内置数据目录。
+
 ## 规范
 - 容器化相关变更应在方案包中记录“如何验证”（例如启动检查点、健康检查、关键端口）。
 - 与 `docker-compose*.yml`、`nginx/` 的联动关系应在变更中逐步补齐。

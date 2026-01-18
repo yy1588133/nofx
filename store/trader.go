@@ -67,7 +67,7 @@ func (s *TraderStore) initTables() error {
 		}
 	}
 	// Use GORM AutoMigrate
-	if err := s.db.AutoMigrate(&Trader{}); err != nil {
+	if err := autoMigrateCreateOnly(s.db, &Trader{}); err != nil {
 		return fmt.Errorf("failed to migrate traders table: %w", err)
 	}
 	return nil
@@ -110,11 +110,11 @@ func (s *TraderStore) Update(trader *Trader) error {
 		trader.ID, trader.Name, trader.AIModelID, trader.StrategyID)
 
 	updates := map[string]interface{}{
-		"name":           trader.Name,
-		"ai_model_id":    trader.AIModelID,
-		"exchange_id":    trader.ExchangeID,
-		"strategy_id":    trader.StrategyID,
-		"is_cross_margin": trader.IsCrossMargin,
+		"name":                trader.Name,
+		"ai_model_id":         trader.AIModelID,
+		"exchange_id":         trader.ExchangeID,
+		"strategy_id":         trader.StrategyID,
+		"is_cross_margin":     trader.IsCrossMargin,
 		"show_in_competition": trader.ShowInCompetition,
 	}
 

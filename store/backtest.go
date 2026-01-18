@@ -229,7 +229,8 @@ func (s *BacktestStore) initTables() error {
 	}
 
 	// AutoMigrate all backtest tables
-	if err := s.db.AutoMigrate(
+	if err := autoMigrateCreateOnly(
+		s.db,
 		&BacktestRun{},
 		&BacktestCheckpoint{},
 		&BacktestEquity{},

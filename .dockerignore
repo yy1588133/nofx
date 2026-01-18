@@ -33,6 +33,7 @@ test_*
 docs/
 
 # Runtime data
+data/
 decision_logs/
 *.log
 

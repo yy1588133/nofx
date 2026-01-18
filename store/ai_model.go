@@ -18,16 +18,16 @@ type AIModelStore struct {
 
 // AIModel AI model configuration
 type AIModel struct {
-	ID              string          `gorm:"primaryKey" json:"id"`
-	UserID          string          `gorm:"column:user_id;not null;default:default;index" json:"user_id"`
-	Name            string          `gorm:"not null" json:"name"`
-	Provider        string          `gorm:"not null" json:"provider"`
-	Enabled         bool            `gorm:"default:false" json:"enabled"`
+	ID              string                 `gorm:"primaryKey" json:"id"`
+	UserID          string                 `gorm:"column:user_id;not null;default:default;index" json:"user_id"`
+	Name            string                 `gorm:"not null" json:"name"`
+	Provider        string                 `gorm:"not null" json:"provider"`
+	Enabled         bool                   `gorm:"default:false" json:"enabled"`
 	APIKey          crypto.EncryptedString `gorm:"column:api_key;default:''" json:"apiKey"`
-	CustomAPIURL    string          `gorm:"column:custom_api_url;default:''" json:"customApiUrl"`
-	CustomModelName string          `gorm:"column:custom_model_name;default:''" json:"customModelName"`
-	CreatedAt       time.Time       `json:"created_at"`
-	UpdatedAt       time.Time       `json:"updated_at"`
+	CustomAPIURL    string                 `gorm:"column:custom_api_url;default:''" json:"customApiUrl"`
+	CustomModelName string                 `gorm:"column:custom_model_name;default:''" json:"customModelName"`
+	CreatedAt       time.Time              `json:"created_at"`
+	UpdatedAt       time.Time              `json:"updated_at"`
 }
 
 func (AIModel) TableName() string { return "ai_models" }
@@ -46,7 +46,152 @@ func (s *AIModelStore) initTables() error {
 			return nil
 		}
 	}
+
+	// SQLite: For legacy DBs, GORM AutoMigrate may rebuild table via ai_models__temp
+	// and can fail during copy. For existing table, do safe incremental migration.
+	if s.db.Dialector.Name() == "sqlite" && s.db.Migrator().HasTable(&AIModel{}) {
+		return s.ensureSQLiteAIModelsCompatibility()
+	}
+
 	return s.db.AutoMigrate(&AIModel{})
+}
+
+type sqliteAIModelTableInfo struct {
+	Name string `gorm:"column:name"`
+}
+
+func (s *AIModelStore) ensureSQLiteAIModelsCompatibility() error {
+	var cols []sqliteAIModelTableInfo
+	if err := s.db.Raw("PRAGMA table_info(ai_models)").Scan(&cols).Error; err != nil {
+		return fmt.Errorf("failed to inspect ai_models table: %w", err)
+	}
+
+	colExists := make(map[string]bool, len(cols))
+	for _, c := range cols {
+		colExists[strings.ToLower(strings.TrimSpace(c.Name))] = true
+	}
+
+	changed := false
+
+	// Add missing columns (keep them nullable where needed; fill data below).
+	if !colExists["user_id"] {
+		if err := s.db.Exec("ALTER TABLE ai_models ADD COLUMN user_id TEXT NOT NULL DEFAULT 'default'").Error; err != nil {
+			return fmt.Errorf("failed to add ai_models.user_id column: %w", err)
+		}
+		colExists["user_id"] = true
+		changed = true
+	}
+	if !colExists["name"] {
+		if err := s.db.Exec("ALTER TABLE ai_models ADD COLUMN name TEXT NOT NULL DEFAULT 'AI Model'").Error; err != nil {
+			return fmt.Errorf("failed to add ai_models.name column: %w", err)
+		}
+		colExists["name"] = true
+		changed = true
+	}
+	if !colExists["provider"] {
+		if err := s.db.Exec("ALTER TABLE ai_models ADD COLUMN provider TEXT NOT NULL DEFAULT 'unknown'").Error; err != nil {
+			return fmt.Errorf("failed to add ai_models.provider column: %w", err)
+		}
+		colExists["provider"] = true
+		changed = true
+	}
+	if !colExists["enabled"] {
+		if err := s.db.Exec("ALTER TABLE ai_models ADD COLUMN enabled BOOLEAN DEFAULT 0").Error; err != nil {
+			return fmt.Errorf("failed to add ai_models.enabled column: %w", err)
+		}
+		colExists["enabled"] = true
+		changed = true
+	}
+	if !colExists["api_key"] {
+		if err := s.db.Exec("ALTER TABLE ai_models ADD COLUMN api_key TEXT DEFAULT ''").Error; err != nil {
+			return fmt.Errorf("failed to add ai_models.api_key column: %w", err)
+		}
+		colExists["api_key"] = true
+		changed = true
+	}
+	if !colExists["custom_api_url"] {
+		if err := s.db.Exec("ALTER TABLE ai_models ADD COLUMN custom_api_url TEXT DEFAULT ''").Error; err != nil {
+			return fmt.Errorf("failed to add ai_models.custom_api_url column: %w", err)
+		}
+		colExists["custom_api_url"] = true
+		changed = true
+	}
+	if !colExists["custom_model_name"] {
+		if err := s.db.Exec("ALTER TABLE ai_models ADD COLUMN custom_model_name TEXT DEFAULT ''").Error; err != nil {
+			return fmt.Errorf("failed to add ai_models.custom_model_name column: %w", err)
+		}
+		colExists["custom_model_name"] = true
+		changed = true
+	}
+	if !colExists["created_at"] {
+		if err := s.db.Exec("ALTER TABLE ai_models ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP").Error; err != nil {
+			return fmt.Errorf("failed to add ai_models.created_at column: %w", err)
+		}
+		colExists["created_at"] = true
+		changed = true
+	}
+	if !colExists["updated_at"] {
+		if err := s.db.Exec("ALTER TABLE ai_models ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP").Error; err != nil {
+			return fmt.Errorf("failed to add ai_models.updated_at column: %w", err)
+		}
+		colExists["updated_at"] = true
+		changed = true
+	}
+
+	// Data fix for legacy rows.
+	if colExists["user_id"] {
+		if err := s.db.Exec(`UPDATE ai_models SET user_id = 'default' WHERE user_id IS NULL OR trim(user_id) = ''`).Error; err != nil {
+			return fmt.Errorf("failed to patch ai_models.user_id: %w", err)
+		}
+	}
+	if colExists["name"] {
+		if err := s.db.Exec(`UPDATE ai_models SET name = 'AI Model' WHERE name IS NULL OR trim(name) = ''`).Error; err != nil {
+			return fmt.Errorf("failed to patch ai_models.name: %w", err)
+		}
+	}
+	if colExists["provider"] {
+		if err := s.db.Exec(`UPDATE ai_models SET provider = 'unknown' WHERE provider IS NULL OR trim(provider) = ''`).Error; err != nil {
+			return fmt.Errorf("failed to patch ai_models.provider: %w", err)
+		}
+	}
+	if colExists["api_key"] {
+		if err := s.db.Exec(`UPDATE ai_models SET api_key = '' WHERE api_key IS NULL`).Error; err != nil {
+			return fmt.Errorf("failed to patch ai_models.api_key: %w", err)
+		}
+	}
+	if colExists["custom_api_url"] {
+		if err := s.db.Exec(`UPDATE ai_models SET custom_api_url = '' WHERE custom_api_url IS NULL`).Error; err != nil {
+			return fmt.Errorf("failed to patch ai_models.custom_api_url: %w", err)
+		}
+	}
+	if colExists["custom_model_name"] {
+		if err := s.db.Exec(`UPDATE ai_models SET custom_model_name = '' WHERE custom_model_name IS NULL`).Error; err != nil {
+			return fmt.Errorf("failed to patch ai_models.custom_model_name: %w", err)
+		}
+	}
+	if colExists["created_at"] {
+		if err := s.db.Exec(`UPDATE ai_models SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL`).Error; err != nil {
+			return fmt.Errorf("failed to patch ai_models.created_at: %w", err)
+		}
+	}
+	if colExists["updated_at"] {
+		if err := s.db.Exec(`UPDATE ai_models SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL`).Error; err != nil {
+			return fmt.Errorf("failed to patch ai_models.updated_at: %w", err)
+		}
+	}
+
+	// Ensure basic index exists on user_id for lookup performance.
+	if colExists["user_id"] {
+		if err := s.db.Exec("CREATE INDEX IF NOT EXISTS idx_ai_models_user_id ON ai_models(user_id)").Error; err != nil {
+			return fmt.Errorf("failed to create index idx_ai_models_user_id on ai_models(user_id): %w", err)
+		}
+	}
+
+	if changed {
+		logger.Warnf("⚠️ ai_models 表已执行 SQLite 兼容迁移（补列/修复数据/索引）")
+	}
+
+	return nil
 }
 
 func (s *AIModelStore) initDefaultData() error {

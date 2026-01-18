@@ -42,7 +42,7 @@ func (s *EquityStore) initTables() error {
 			return nil
 		}
 	}
-	return s.db.AutoMigrate(&EquitySnapshot{})
+	return autoMigrateCreateOnly(s.db, &EquitySnapshot{})
 }
 
 // Save saves equity snapshot
